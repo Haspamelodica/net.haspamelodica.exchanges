@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -27,6 +28,8 @@ import java.util.function.Function;
  */
 public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, OUT extends WrappedMultiplexedOutputStream> implements AutoCloseable
 {
+	static final boolean DEBUG = false;
+
 	private static final int SIGN_BIT = Integer.MIN_VALUE;
 
 	private final DataInputStream	rawIn;
@@ -117,6 +120,8 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 
 	private void recordReadyForReceiving(int streamID, int len) throws UnexpectedResponseException, IOException
 	{
+		if(DEBUG)
+			debugOut(streamID, "Receiving " + len + " bytes ready");
 		MultiplexedOutputStream outputStream = getExistingStreamThreadsafe(outputStreams, streamID, "output").getWrappedStream();
 		if(len == 0)
 			outputStream.eofReached();
@@ -125,6 +130,8 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	}
 	private void recordReceivedData(int streamID, int len) throws UnexpectedResponseException, IOException
 	{
+		if(DEBUG)
+			debugIn(streamID, "Receiving " + (len != 0 ? len + " bytes" : "EOF"));
 		MultiplexedInputStream inputStream = getExistingStreamThreadsafe(inputStreams, streamID, "input").getWrappedStream();
 		if(len == 0)
 			inputStream.eofReached();
@@ -136,6 +143,8 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	{
 		synchronized(rawOutLock)
 		{
+			if(DEBUG)
+				debugIn(streamID, "Sending " + len + " bytes ready");
 			rawOut.writeInt(streamID | SIGN_BIT);
 			rawOut.writeInt(len);
 		}
@@ -144,24 +153,32 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	{
 		synchronized(rawOutLock)
 		{
-			writeBytesSynchronized(streamID, buf, off, len);
+			if(DEBUG)
+				debugOut(streamID, "Sending " + len + " bytes: " + Arrays.toString(Arrays.copyOfRange(buf, off, off + len)));
+			rawOut.writeInt(streamID);
+			rawOut.writeInt(len);
+			rawOut.write(buf, off, len);
 		}
 	}
-	void writeBytesSynchronized(int streamID, byte[] buf, int off, int len) throws IOException
+	void writeOutputEOF(int streamID) throws IOException
 	{
-		rawOut.writeInt(streamID);
-		rawOut.writeInt(len);
-		rawOut.write(buf, off, len);
+		synchronized(rawOutLock)
+		{
+			if(DEBUG)
+				debugOut(streamID, "Sending EOF");
+			rawOut.writeInt(streamID);
+			rawOut.writeInt(0);
+		}
 	}
-	void writeOutputEOFSynchronized(int streamID) throws IOException
+	void writeInputEOF(int streamID) throws IOException
 	{
-		rawOut.writeInt(streamID);
-		rawOut.writeInt(0);
-	}
-	void writeInputEOFSynchronized(int streamID) throws IOException
-	{
-		rawOut.writeInt(streamID | SIGN_BIT);
-		rawOut.writeInt(0);
+		synchronized(rawOutLock)
+		{
+			if(DEBUG)
+				debugIn(streamID, "Sending EOF");
+			rawOut.writeInt(streamID | SIGN_BIT);
+			rawOut.writeInt(0);
+		}
 	}
 
 	<R> R throwIOException() throws UnexpectedResponseException, ClosedException, IOException
@@ -258,6 +275,23 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	static interface StreamConstructor<E>
 	{
 		public E newStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, State state) throws ClosedException;
+	}
+
+	private void debugIn(int streamID, String message) throws UnexpectedResponseException
+	{
+		IN existingStreamThreadsafe = getExistingStreamThreadsafe(inputStreams, streamID, "debug");
+		int eventID = existingStreamThreadsafe.getWrappedStream().nextDebugEventID();
+		debug(streamID, eventID, "In ", message);
+	}
+	private void debugOut(int streamID, String message) throws UnexpectedResponseException
+	{
+		OUT existingStreamThreadsafe = getExistingStreamThreadsafe(outputStreams, streamID, "debug");
+		int eventID = existingStreamThreadsafe.getWrappedStream().nextDebugEventID();
+		debug(streamID, eventID, "Out", message);
+	}
+	private void debug(int streamID, int eventID, String inOrOut, String message)
+	{
+		System.err.println("Stream#" + streamID + " " + inOrOut + " #" + eventID + ": " + message);
 	}
 
 	static enum State

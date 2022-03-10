@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MultiplexedOutputStream extends OutputStream implements WrappedMultiplexedOutputStream
 {
@@ -159,7 +160,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 				{
 					int lenToWrite = Math.min(len, this.len);
 
-					multiplexer.writeBytesSynchronized(streamID, buf, off, lenToWrite);
+					multiplexer.writeBytes(streamID, buf, off, lenToWrite);
 					off += lenToWrite;
 					this.len -= lenToWrite;
 
@@ -230,7 +231,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 	public void close() throws IOException
 	{
 		if(closeWithoutSendingEOF())
-			multiplexer.writeOutputEOFSynchronized(streamID);
+			multiplexer.writeOutputEOF(streamID);
 	}
 	boolean closeWithoutSendingEOF()
 	{
@@ -246,6 +247,12 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 
 			return true;
 		}
+	}
+
+	final AtomicInteger nextDebugEventID = new AtomicInteger();
+	int nextDebugEventID()
+	{
+		return nextDebugEventID.incrementAndGet();
 	}
 
 	private static enum State

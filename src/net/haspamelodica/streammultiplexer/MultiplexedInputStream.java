@@ -3,7 +3,9 @@ package net.haspamelodica.streammultiplexer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
+import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MultiplexedInputStream extends InputStream implements WrappedMultiplexedInputStream
 {
@@ -126,15 +128,20 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 				// Special case: This input stream got closed during a read,
 				// but the output end already prepared data.
 				if(state == State.CLOSED)
-					// In this case, skip data to keep stream valid.
-					in.skip(len);
-				else
+				// In this case, skip data to keep stream valid.
+				{
+					in.skipNBytes(len);
+					if(GenericStreamMultiplexer.DEBUG)
+						System.err.println("Skipped " + len + " bytes");
+				} else
 					throw new UnexpectedResponseException("Currently not waiting for a response");
 			}
 			if(len > this.len)
 				throw new UnexpectedResponseException("received data len > ready len");
 			// realRead is only not len if EOF happens.
 			int realRead = in.readNBytes(this.buf, this.off, len);
+			if(GenericStreamMultiplexer.DEBUG)
+				System.err.println("Read " + realRead + " bytes: " + Arrays.toString(Arrays.copyOfRange(buf, off, off + realRead)));
 			this.len = realRead;
 			// don't keep unneccessary reference
 			this.buf = null;
@@ -179,7 +186,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 	public void close() throws IOException
 	{
 		if(closeWithoutSendingEOF())
-			multiplexer.writeInputEOFSynchronized(streamID);
+			multiplexer.writeInputEOF(streamID);
 	}
 	boolean closeWithoutSendingEOF()
 	{
@@ -194,6 +201,12 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			lock.notify();
 			return true;
 		}
+	}
+
+	final AtomicInteger nextDebugEventID = new AtomicInteger();
+	int nextDebugEventID()
+	{
+		return nextDebugEventID.incrementAndGet();
 	}
 
 	private static enum State
