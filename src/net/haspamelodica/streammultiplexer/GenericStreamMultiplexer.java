@@ -177,7 +177,11 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	}
 
 	@Override
-	public void close() throws IOException
+	/**
+	 * Closes this multiplexer and all of its children streams.
+	 * Does not close rawIn and rawOut provided in the constructor.
+	 */
+	public void close()
 	{
 		State oldState;
 		// neccessary to be synchronized because readerThread
@@ -196,8 +200,6 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 		iterateAllStreams(MultiplexedInputStream::closeWithoutSendingEOF, MultiplexedOutputStream::closeWithoutSendingEOF);
 
 		readerThread.interrupt();
-		rawIn.close();
-		rawOut.close();
 	}
 
 	private void iterateAllStreams(Consumer<MultiplexedInputStream> inputStreamAction, Consumer<MultiplexedOutputStream> outputStreamAction)
