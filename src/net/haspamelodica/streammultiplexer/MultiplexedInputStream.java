@@ -5,10 +5,10 @@ import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.util.Objects;
 
-public class MultiplexedInputStream extends InputStream
+public class MultiplexedInputStream extends InputStream implements WrappedMultiplexedInputStream
 {
-	private final StreamMultiplexer	multiplexer;
-	private final int				streamID;
+	private final GenericStreamMultiplexer<?, ?>	multiplexer;
+	private final int								streamID;
 
 	private final Object	lock;
 	private int				off;
@@ -16,7 +16,7 @@ public class MultiplexedInputStream extends InputStream
 	private byte[]			buf;
 	private State			state;
 
-	MultiplexedInputStream(StreamMultiplexer multiplexer, int streamID, StreamMultiplexer.State state) throws ClosedException
+	MultiplexedInputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, GenericStreamMultiplexer.State state) throws ClosedException
 	{
 		this(multiplexer, streamID, switch(state)
 		{
@@ -26,7 +26,7 @@ public class MultiplexedInputStream extends InputStream
 			case IO_EXCEPTION -> State.IO_EXCEPTION;
 		});
 	}
-	private MultiplexedInputStream(StreamMultiplexer multiplexer, int streamID, State state)
+	private MultiplexedInputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, State state)
 	{
 		this.multiplexer = multiplexer;
 		this.streamID = streamID;
@@ -35,9 +35,16 @@ public class MultiplexedInputStream extends InputStream
 		this.state = state;
 	}
 
+	@Override
 	public int getStreamID()
 	{
 		return streamID;
+	}
+
+	@Override
+	public MultiplexedInputStream getWrappedStream()
+	{
+		return this;
 	}
 
 	@Override

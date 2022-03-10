@@ -6,10 +6,10 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.Objects;
 
-public class MultiplexedOutputStream extends OutputStream
+public class MultiplexedOutputStream extends OutputStream implements WrappedMultiplexedOutputStream
 {
-	private final StreamMultiplexer	multiplexer;
-	private final int				streamID;
+	private final GenericStreamMultiplexer<?, ?>	multiplexer;
+	private final int								streamID;
 
 	private final Object	lock;
 	private int				off;
@@ -17,7 +17,7 @@ public class MultiplexedOutputStream extends OutputStream
 	private byte[]			buf;
 	private State			state;
 
-	MultiplexedOutputStream(StreamMultiplexer multiplexer, int streamID, StreamMultiplexer.State state) throws ClosedException
+	MultiplexedOutputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, StreamMultiplexer.State state) throws ClosedException
 	{
 		this(multiplexer, streamID, switch(state)
 		{
@@ -27,11 +27,11 @@ public class MultiplexedOutputStream extends OutputStream
 			case IO_EXCEPTION -> State.IO_EXCEPTION;
 		});
 	}
-	MultiplexedOutputStream(StreamMultiplexer multiplexer, int streamID)
+	MultiplexedOutputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID)
 	{
 		this(multiplexer, streamID, State.NOT_WRITING);
 	}
-	private MultiplexedOutputStream(StreamMultiplexer multiplexer, int streamID, State state)
+	private MultiplexedOutputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, State state)
 	{
 		this.multiplexer = multiplexer;
 		this.streamID = streamID;
@@ -40,9 +40,16 @@ public class MultiplexedOutputStream extends OutputStream
 		this.state = state;
 	}
 
+	@Override
 	public int getStreamID()
 	{
 		return streamID;
+	}
+
+	@Override
+	public MultiplexedOutputStream getWrappedStream()
+	{
+		return this;
 	}
 
 	@Override
