@@ -97,12 +97,12 @@ public class StreamMultiplexer implements AutoCloseable
 		}
 	}
 
-	public InputStream getIn(int streamID) throws ClosedException
+	public MultiplexedInputStream getIn(int streamID) throws ClosedException
 	{
 		return getOrCreateElementThreadsafe(inputStreams, streamID, MultiplexedInputStream::new);
 	}
 
-	public OutputStream getOut(int streamID) throws ClosedException
+	public MultiplexedOutputStream getOut(int streamID) throws ClosedException
 	{
 		return getOrCreateElementThreadsafe(outputStreams, streamID, MultiplexedOutputStream::new);
 	}
