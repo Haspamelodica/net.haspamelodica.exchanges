@@ -1,6 +1,7 @@
 package net.haspamelodica.streammultiplexer;
 
 import java.io.DataOutputStream;
+import java.io.OutputStream;
 
 public class MultiplexedDataOutputStream extends DataOutputStream implements WrappedMultiplexedOutputStream
 {
@@ -8,8 +9,12 @@ public class MultiplexedDataOutputStream extends DataOutputStream implements Wra
 
 	public MultiplexedDataOutputStream(MultiplexedOutputStream out)
 	{
+		this(out, out);
+	}
+	public MultiplexedDataOutputStream(MultiplexedOutputStream wrappedStream, OutputStream out)
+	{
 		super(out);
-		this.wrappedStream = out;
+		this.wrappedStream = wrappedStream;
 	}
 
 	@Override

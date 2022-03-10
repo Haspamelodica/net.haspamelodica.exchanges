@@ -147,6 +147,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 				debugIn(streamID, "Sending " + len + " bytes ready");
 			rawOut.writeInt(streamID | SIGN_BIT);
 			rawOut.writeInt(len);
+			rawOut.flush();
 		}
 	}
 	void writeBytes(int streamID, byte[] buf, int off, int len) throws IOException
@@ -158,6 +159,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 			rawOut.writeInt(streamID);
 			rawOut.writeInt(len);
 			rawOut.write(buf, off, len);
+			rawOut.flush();
 		}
 	}
 	void writeOutputEOF(int streamID) throws IOException
@@ -168,6 +170,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 				debugOut(streamID, "Sending EOF");
 			rawOut.writeInt(streamID);
 			rawOut.writeInt(0);
+			rawOut.flush();
 		}
 	}
 	void writeInputEOF(int streamID) throws IOException
@@ -178,6 +181,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 				debugIn(streamID, "Sending EOF");
 			rawOut.writeInt(streamID | SIGN_BIT);
 			rawOut.writeInt(0);
+			rawOut.flush();
 		}
 	}
 
