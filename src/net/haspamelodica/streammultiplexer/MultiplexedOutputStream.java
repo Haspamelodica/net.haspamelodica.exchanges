@@ -40,6 +40,11 @@ public class MultiplexedOutputStream extends OutputStream
 		this.state = state;
 	}
 
+	public int getStreamID()
+	{
+		return streamID;
+	}
+
 	@Override
 	public void write(int b) throws IOException
 	{

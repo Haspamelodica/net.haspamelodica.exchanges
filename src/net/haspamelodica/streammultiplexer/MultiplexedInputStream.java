@@ -35,6 +35,11 @@ public class MultiplexedInputStream extends InputStream
 		this.state = state;
 	}
 
+	public int getStreamID()
+	{
+		return streamID;
+	}
+
 	@Override
 	public int read() throws IOException
 	{
