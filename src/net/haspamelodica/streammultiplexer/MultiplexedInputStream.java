@@ -97,7 +97,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 				throw new InterruptedIOException();
 			}
 
-			return switch(state)
+			switch(state)
 			{
 				case NOT_READING -> throw new IllegalStateException("Input stream in impossible state");
 				case WAITING_FOR_RESPONSE ->
@@ -107,9 +107,12 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 				case BYTES_READY ->
 				{
 					state = State.NOT_READING;
-					yield this.len;
+					return this.len;
 				}
-				case EOF -> -1;
+				case EOF ->
+				{
+					return -1;
+				}
 				case IO_EXCEPTION -> multiplexer.throwIOException();
 				case CLOSED -> throwClosed();
 			};
