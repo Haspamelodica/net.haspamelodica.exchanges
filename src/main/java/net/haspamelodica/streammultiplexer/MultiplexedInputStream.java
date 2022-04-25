@@ -70,7 +70,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			return switch(state)
 			{
 				case NOT_READING -> readChecked(buf, off, len);
-				case WAITING_FOR_RESPONSE, BYTES_READY -> throw new IOException("Another thread is currently reading");
+				case WAITING_FOR_RESPONSE, BYTES_READY, BYTES_READY_THEN_EOF -> throw new IOException("Another thread is currently reading");
 				case EOF -> -1;
 				case IO_EXCEPTION -> multiplexer.throwIOException();
 				case CLOSED -> throwClosed();
@@ -107,6 +107,11 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 				case BYTES_READY ->
 				{
 					state = State.NOT_READING;
+					return this.len;
+				}
+				case BYTES_READY_THEN_EOF ->
+				{
+					state = State.EOF;
 					return this.len;
 				}
 				case EOF ->
@@ -162,7 +167,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 
 			// don't keep unneccessary reference
 			this.buf = null;
-			state = State.EOF;
+			state = state == State.BYTES_READY ? State.BYTES_READY_THEN_EOF : State.EOF;
 			lock.notify();
 		}
 	}
@@ -217,6 +222,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 		NOT_READING,
 		WAITING_FOR_RESPONSE,
 		BYTES_READY,
+		BYTES_READY_THEN_EOF,
 		EOF,
 		IO_EXCEPTION,
 		CLOSED;
