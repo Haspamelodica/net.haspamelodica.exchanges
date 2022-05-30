@@ -58,6 +58,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 		this.outWrapper = outWrapper;
 
 		this.readerThread = new Thread(this::readerThread);
+		readerThread.setDaemon(true);
 
 		this.inputStreams = new ArrayList<>();
 		this.outputStreams = new ArrayList<>();
