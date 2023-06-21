@@ -59,9 +59,6 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 		write(new byte[] {(byte) b}, 0, 1);
 	}
 
-	/**
-	 *
-	 */
 	@Override
 	public void write(byte[] buf, int off, int len) throws UnexpectedResponseException, ClosedException, EOFException, InterruptedIOException, IOException
 	{

@@ -122,7 +122,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	private void recordReadyForReceiving(int streamID, int len) throws UnexpectedResponseException, IOException
 	{
 		if(DEBUG)
-			debugOut(streamID, "Receiving " + len + " bytes ready");
+			debugOut(streamID, "Receiving " + (len != 0 ? len + " bytes ready" : "EOF"));
 		MultiplexedOutputStream outputStream = getExistingStreamThreadsafe(outputStreams, streamID, "output").getWrappedStream();
 		if(len == 0)
 			outputStream.eofReached();
