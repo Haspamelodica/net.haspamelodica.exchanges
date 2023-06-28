@@ -151,7 +151,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			if(GenericStreamMultiplexer.DEBUG)
 				System.err.println("Read " + realRead + " bytes: " + Arrays.toString(Arrays.copyOfRange(buf, off, off + realRead)));
 			this.len = realRead;
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			this.buf = null;
 			state = realRead == -1 ? State.EOF : State.BYTES_READY;
 			lock.notify();
@@ -165,7 +165,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			if(state == State.CLOSED)
 				return;
 
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			this.buf = null;
 			state = state == State.BYTES_READY ? State.BYTES_READY_THEN_EOF : State.EOF;
 			lock.notify();
@@ -178,7 +178,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			if(state == State.CLOSED)
 				return;
 
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			this.buf = null;
 			state = State.IO_EXCEPTION;
 			lock.notify();
@@ -203,7 +203,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			if(state == State.CLOSED)
 				return false;
 
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			buf = null;
 			state = State.CLOSED;
 			lock.notify();

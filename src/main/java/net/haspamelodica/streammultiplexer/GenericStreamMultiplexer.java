@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
- * Returned streams are partly thread-safe: External synchronization is only neccessary to make sure
+ * Returned streams are partly thread-safe: External synchronization is only necessary to make sure
  * only one thread accesses the same stream at a time.
  * <p>
  * Writing to an input stream for which the corresponding output stream on the other end doesn't exist
@@ -66,7 +66,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 		this.state = new AtomicReference<>(State.OPEN);
 		this.ioException = new AtomicReference<>();
 
-		// no synchronization neccessary yet
+		// no synchronization necessary yet
 		outputStreams.add(outWrapper.apply(new MultiplexedOutputStream(this, 0)));
 
 		readerThread.start();
@@ -206,7 +206,7 @@ public class GenericStreamMultiplexer<IN extends WrappedMultiplexedInputStream, 
 	public void close()
 	{
 		State oldState;
-		// neccessary to be synchronized because readerThread
+		// necessary to be synchronized because readerThread
 		synchronized(state)
 		{
 			oldState = state.getAndSet(State.CLOSED);

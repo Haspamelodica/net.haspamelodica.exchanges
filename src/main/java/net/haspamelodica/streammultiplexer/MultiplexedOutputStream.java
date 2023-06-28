@@ -164,7 +164,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 					// the read request is now finished, whether len is now 0 or not
 					if(this.len == 0)
 					{
-						// don't keep unneccessary reference
+						// don't keep unnecessary reference
 						this.buf = null;
 						state = State.WRITE_FINISHED_THEN_NOT_WRITING;
 						lock.notify();
@@ -194,7 +194,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 			if(state == State.CLOSED)
 				return;
 
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			this.buf = null;
 			state = State.EOF;
 			lock.notify();
@@ -207,7 +207,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 			if(state == State.CLOSED)
 				return;
 
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			this.buf = null;
 			state = State.IO_EXCEPTION;
 			lock.notify();
@@ -237,7 +237,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 			if(state == State.CLOSED)
 				return false;
 
-			// don't keep unneccessary reference
+			// don't keep unnecessary reference
 			buf = null;
 			state = State.CLOSED;
 			lock.notify();
