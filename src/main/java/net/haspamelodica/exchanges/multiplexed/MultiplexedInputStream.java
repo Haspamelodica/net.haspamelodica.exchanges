@@ -42,7 +42,7 @@ public class MultiplexedInputStream extends InputStream
 		byte[] buf = new byte[1];
 		int len = read(buf, 0, 1);
 		if(len == 1)
-			return buf[0];
+			return buf[0] & 0xFF;
 		return -1;
 	}
 	@Override
