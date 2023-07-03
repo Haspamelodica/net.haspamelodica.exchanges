@@ -6,8 +6,8 @@
 	<artifactId>exchanges</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>exchanges</name>
-	<description>Various IO utilities; including multiplexing multiple Input/OutputStreams over one pair of
-		Input/OutputStreams</description>
+	<description>Various IO utilities; including multiplexing multiple
+		Input/OutputStreams over one pair of Input/OutputStreams</description>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -17,6 +17,7 @@
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter-api</artifactId>
 			<version>5.8.2</version>
+			<scope>test</scope>
 		</dependency>
 	</dependencies>
 	<build>
