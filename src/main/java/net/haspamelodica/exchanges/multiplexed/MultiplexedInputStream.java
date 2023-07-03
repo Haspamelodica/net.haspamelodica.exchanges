@@ -1,16 +1,15 @@
-package net.haspamelodica.streammultiplexer;
+package net.haspamelodica.exchanges.multiplexed;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
 
-public class MultiplexedInputStream extends InputStream implements WrappedMultiplexedInputStream
+public class MultiplexedInputStream extends InputStream
 {
-	private final GenericStreamMultiplexer<?, ?>	multiplexer;
-	private final int								streamID;
+	private final MultiplexedExchangePool	multiplexer;
+	private final int						exchangeId;
 
 	private final Object	lock;
 	private int				off;
@@ -18,9 +17,9 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 	private byte[]			buf;
 	private State			state;
 
-	MultiplexedInputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, GenericStreamMultiplexer.State state) throws ClosedException
+	MultiplexedInputStream(MultiplexedExchangePool multiplexer, int exchangeId, MultiplexedExchangePool.State state) throws ClosedException
 	{
-		this(multiplexer, streamID, switch(state)
+		this(multiplexer, exchangeId, switch(state)
 		{
 			case OPEN -> State.NOT_READING;
 			case CLOSED -> throw new ClosedException();
@@ -28,25 +27,13 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			case IO_EXCEPTION -> State.IO_EXCEPTION;
 		});
 	}
-	private MultiplexedInputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, State state)
+	private MultiplexedInputStream(MultiplexedExchangePool multiplexer, int exchangeId, State state)
 	{
 		this.multiplexer = multiplexer;
-		this.streamID = streamID;
+		this.exchangeId = exchangeId;
 
 		this.lock = new Object();
 		this.state = state;
-	}
-
-	@Override
-	public int getStreamID()
-	{
-		return streamID;
-	}
-
-	@Override
-	public MultiplexedInputStream getWrappedStream()
-	{
-		return this;
 	}
 
 	@Override
@@ -85,7 +72,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 		this.len = len;
 		this.state = State.WAITING_FOR_RESPONSE;
 
-		multiplexer.notifyReadyForReceiving(streamID, len);
+		multiplexer.writeReadyForReceiving(exchangeId, len);
 
 		for(;;)
 		{
@@ -139,7 +126,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 				// In this case, skip data to keep stream valid.
 				{
 					in.skipNBytes(len);
-					if(GenericStreamMultiplexer.DEBUG)
+					if(MultiplexedExchangePool.DEBUG)
 						System.err.println("Skipped " + len + " bytes");
 				} else
 					throw new UnexpectedResponseException("Currently not waiting for a response");
@@ -148,7 +135,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 				throw new UnexpectedResponseException("received data len > ready len");
 			// realRead is only not len if EOF happens.
 			int realRead = in.readNBytes(this.buf, this.off, len);
-			if(GenericStreamMultiplexer.DEBUG)
+			if(MultiplexedExchangePool.DEBUG)
 				System.err.println("Read " + realRead + " bytes: " + Arrays.toString(Arrays.copyOfRange(buf, off, off + realRead)));
 			this.len = realRead;
 			// don't keep unnecessary reference
@@ -194,7 +181,7 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 	public void close() throws IOException
 	{
 		if(closeWithoutSendingEOF())
-			multiplexer.writeInputEOF(streamID);
+			multiplexer.writeInputEOF(exchangeId);
 	}
 	boolean closeWithoutSendingEOF()
 	{
@@ -209,12 +196,6 @@ public class MultiplexedInputStream extends InputStream implements WrappedMultip
 			lock.notify();
 			return true;
 		}
-	}
-
-	final AtomicInteger nextDebugEventID = new AtomicInteger();
-	int nextDebugEventID()
-	{
-		return nextDebugEventID.incrementAndGet();
 	}
 
 	private static enum State

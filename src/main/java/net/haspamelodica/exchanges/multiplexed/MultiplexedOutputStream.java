@@ -1,16 +1,15 @@
-package net.haspamelodica.streammultiplexer;
+package net.haspamelodica.exchanges.multiplexed;
 
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
 
-public class MultiplexedOutputStream extends OutputStream implements WrappedMultiplexedOutputStream
+public class MultiplexedOutputStream extends OutputStream
 {
-	private final GenericStreamMultiplexer<?, ?>	multiplexer;
-	private final int								streamID;
+	private final MultiplexedExchangePool	multiplexer;
+	private final int						exchangeId;
 
 	private final Object	lock;
 	private int				off;
@@ -18,9 +17,9 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 	private byte[]			buf;
 	private State			state;
 
-	MultiplexedOutputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, StreamMultiplexer.State state) throws ClosedException
+	MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId, MultiplexedExchangePool.State state) throws ClosedException
 	{
-		this(multiplexer, streamID, switch(state)
+		this(multiplexer, exchangeId, switch(state)
 		{
 			case OPEN -> State.NOT_WRITING;
 			case CLOSED -> throw new ClosedException();
@@ -28,29 +27,17 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 			case IO_EXCEPTION -> State.IO_EXCEPTION;
 		});
 	}
-	MultiplexedOutputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID)
+	MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId)
 	{
-		this(multiplexer, streamID, State.NOT_WRITING);
+		this(multiplexer, exchangeId, State.NOT_WRITING);
 	}
-	private MultiplexedOutputStream(GenericStreamMultiplexer<?, ?> multiplexer, int streamID, State state)
+	private MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId, State state)
 	{
 		this.multiplexer = multiplexer;
-		this.streamID = streamID;
+		this.exchangeId = exchangeId;
 
 		this.lock = new Object();
 		this.state = state;
-	}
-
-	@Override
-	public int getStreamID()
-	{
-		return streamID;
-	}
-
-	@Override
-	public MultiplexedOutputStream getWrappedStream()
-	{
-		return this;
 	}
 
 	@Override
@@ -84,7 +71,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 	{
 		int lenToWrite = Math.min(len, this.len);
 
-		multiplexer.writeBytes(streamID, buf, off, lenToWrite);
+		multiplexer.writeBytes(exchangeId, buf, off, lenToWrite);
 		off += lenToWrite;
 		len -= lenToWrite;
 		// the read request is now finished, whether this.len is now 0 or not
@@ -157,7 +144,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 				{
 					int lenToWrite = Math.min(len, this.len);
 
-					multiplexer.writeBytes(streamID, buf, off, lenToWrite);
+					multiplexer.writeBytes(exchangeId, buf, off, lenToWrite);
 					off += lenToWrite;
 					this.len -= lenToWrite;
 
@@ -228,7 +215,7 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 	public void close() throws IOException
 	{
 		if(closeWithoutSendingEOF())
-			multiplexer.writeOutputEOF(streamID);
+			multiplexer.writeOutputEOF(exchangeId);
 	}
 	boolean closeWithoutSendingEOF()
 	{
@@ -244,12 +231,6 @@ public class MultiplexedOutputStream extends OutputStream implements WrappedMult
 
 			return true;
 		}
-	}
-
-	final AtomicInteger nextDebugEventID = new AtomicInteger();
-	int nextDebugEventID()
-	{
-		return nextDebugEventID.incrementAndGet();
 	}
 
 	private static enum State
