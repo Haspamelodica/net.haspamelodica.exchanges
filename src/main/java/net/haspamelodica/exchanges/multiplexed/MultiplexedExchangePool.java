@@ -200,6 +200,7 @@ public class MultiplexedExchangePool implements ExchangePool
 			if(DEBUG)
 				debug(-1, null, "Sending new stream ready");
 			rawOut.writeInt(0);
+			rawOut.flush();
 		}
 	}
 	void writeReadyForReceiving(int exchangeId, int len) throws IOException
