@@ -1,5 +1,7 @@
 package net.haspamelodica.exchanges;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
@@ -23,6 +25,16 @@ public record Exchange(InputStream in, OutputStream out) implements AutoCloseabl
 		{
 			out.close();
 		}
+	}
+
+	public Exchange wrapBuffered()
+	{
+		return new Exchange(new BufferedInputStream(in), new BufferedOutputStream(out));
+	}
+
+	public DataExchange wrapData()
+	{
+		return DataExchange.from(this);
 	}
 
 	public static AutoClosablePair<Exchange, Exchange> openPiped() throws IOException
