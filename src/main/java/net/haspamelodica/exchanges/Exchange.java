@@ -32,7 +32,7 @@ public record Exchange(InputStream in, OutputStream out) implements AutoCloseabl
 		return DataExchange.from(this);
 	}
 
-	public static AutoClosablePair<Exchange, Exchange> openPiped() throws IOException
+	public static AutoClosablePair<Exchange, Exchange> openPiped()
 	{
 		// java.io.Piped[In|Out]putStream's don't work with multiple threads (they cause random IOExceptions with message "Pipe broken").
 		@SuppressWarnings("resource")
