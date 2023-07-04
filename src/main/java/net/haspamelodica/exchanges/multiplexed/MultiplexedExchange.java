@@ -4,7 +4,6 @@ import java.io.DataInputStream;
 import java.io.IOException;
 
 import net.haspamelodica.exchanges.Exchange;
-import net.haspamelodica.exchanges.multiplexed.MultiplexedExchangePool.State;
 
 public class MultiplexedExchange
 {
@@ -12,13 +11,13 @@ public class MultiplexedExchange
 	private final MultiplexedInputStream	in;
 	private final MultiplexedOutputStream	out;
 
-	MultiplexedExchange(MultiplexedExchangePool multiplexer, int id, State state) throws ClosedException
+	MultiplexedExchange(MultiplexedExchangePool multiplexer, int id)
 	{
 		if(id < 0)
 			throw new IllegalArgumentException("negative ID: " + id);
 		this.id = id;
-		this.in = new MultiplexedInputStream(multiplexer, id, state);
-		this.out = new MultiplexedOutputStream(multiplexer, id, state);
+		this.in = new MultiplexedInputStream(multiplexer, id);
+		this.out = new MultiplexedOutputStream(multiplexer, id);
 	}
 
 	private MultiplexedExchange()
@@ -68,8 +67,8 @@ public class MultiplexedExchange
 
 	void eofReached()
 	{
-		in.eofReached();
-		out.eofReached();
+		inEofReached();
+		outEofReached();
 	}
 
 	void ioExceptionThrown()

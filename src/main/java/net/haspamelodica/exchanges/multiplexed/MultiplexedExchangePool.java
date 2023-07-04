@@ -51,7 +51,7 @@ public class MultiplexedExchangePool implements ExchangePool
 		this.rawOutLock = new Object();
 		this.rawOut = new DataOutputStream(rawExchange.out());
 
-		this.readerThread = new Thread(this::readerThread);
+		this.readerThread = new Thread(this::readerThread, "Multiplexer Reader");
 		this.exchangesById = new AtomicReference<>(new ArrayList<>());
 		readerThread.setDaemon(true);
 
@@ -63,6 +63,15 @@ public class MultiplexedExchangePool implements ExchangePool
 		readerThread.start();
 	}
 
+
+	/**
+	 * readerThread must never wait for a write, otherwise deadlocks can occur
+	 * because the readerThreads of both sides could both be waiting
+	 * for the other to accept the write they're waiting for.
+	 * <p>
+	 * readerThread synchronizes on {@link #state}.
+	 * Because of this, none of the writeXYZ methods must be called while this lock is held.
+	 */
 	private void readerThread()
 	{
 		List<MultiplexedExchange> exchangesById = this.exchangesById.get();
@@ -76,10 +85,9 @@ public class MultiplexedExchangePool implements ExchangePool
 					// make sure we aren't modifying exchangesById while close() runs
 					synchronized(state)
 					{
-						// avoid 
 						if(state.get() != State.OPEN)
 							break;
-						MultiplexedExchange exchange = new MultiplexedExchange(this, exchangesById.size() + 1, State.OPEN);
+						MultiplexedExchange exchange = new MultiplexedExchange(this, exchangesById.size() + 1);
 						exchangesById.add(exchange);
 						readyExchanges.add(exchange);
 						continue;
@@ -145,17 +153,10 @@ public class MultiplexedExchangePool implements ExchangePool
 	@Override
 	public Exchange createNewExchange() throws IOException
 	{
-		synchronized(state)
-		{
-			if(state.get() != State.OPEN)
-				return throwCreateNewExchangeNotOpen();
+		if(state.get() != State.OPEN)
+			return throwCreateNewExchangeNotOpen();
 
-			// This might keep the state lock locked until the write finishes,
-			// which can keep close from running.
-			// That's not a big problem, however, because that's true either way,
-			// because close needs to close each exchange, which can block for the same reason.
-			writeNewExchangeReady();
-		}
+		writeNewExchangeReady();
 
 		MultiplexedExchange exchange;
 		try
@@ -193,6 +194,9 @@ public class MultiplexedExchangePool implements ExchangePool
 		};
 	}
 
+	/**
+	 * This must not be called while the caller holds {@link #state}; see {@link #readerThread}.
+	 */
 	void writeNewExchangeReady() throws IOException
 	{
 		synchronized(rawOutLock)
@@ -203,6 +207,9 @@ public class MultiplexedExchangePool implements ExchangePool
 			rawOut.flush();
 		}
 	}
+	/**
+	 * This must not be called while the caller holds {@link #state}; see {@link #readerThread}.
+	 */
 	void writeReadyForReceiving(int exchangeId, int len) throws IOException
 	{
 		synchronized(rawOutLock)
@@ -214,6 +221,9 @@ public class MultiplexedExchangePool implements ExchangePool
 			rawOut.flush();
 		}
 	}
+	/**
+	 * This must not be called while the caller holds {@link #state}; see {@link #readerThread}.
+	 */
 	void writeBytes(int exchangeId, byte[] buf, int off, int len) throws IOException
 	{
 		synchronized(rawOutLock)
@@ -226,6 +236,9 @@ public class MultiplexedExchangePool implements ExchangePool
 			rawOut.flush();
 		}
 	}
+	/**
+	 * This must not be called while the caller holds {@link #state}; see {@link #readerThread}.
+	 */
 	void writeOutputEOF(int exchangeId) throws IOException
 	{
 		synchronized(rawOutLock)
@@ -237,6 +250,9 @@ public class MultiplexedExchangePool implements ExchangePool
 			rawOut.flush();
 		}
 	}
+	/**
+	 * This must not be called while the caller holds {@link #state}; see {@link #readerThread}.
+	 */
 	void writeInputEOF(int exchangeId) throws IOException
 	{
 		synchronized(rawOutLock)
@@ -267,7 +283,8 @@ public class MultiplexedExchangePool implements ExchangePool
 	 * Does not close rawIn and rawOut provided in the constructor.
 	 * <p>
 	 * The exchange pool might continue reading some bytes from rawIn after close returns,
-	 * if rawIn does not throw an IOException upon the reading thread being interrupted.
+	 * if rawIn does not throw an IOException when the reading thread is interrupted.
+	 * Also, the exchange pool might continue writing some bytes to rawOut after close returns.
 	 */
 	public void close() throws IOException
 	{
@@ -287,12 +304,10 @@ public class MultiplexedExchangePool implements ExchangePool
 			// notify createNewExchange this multiplexer is closed
 			if(oldState != State.CLOSED)
 				// The BlockingQueue we're using (LinkedBlockingQueue) does not support null entries.
-				// So, we have to use sentry objects.
+				// So, we have to use sentry objects instead.
 				readyExchanges.add(MultiplexedExchange.createSentry());
 
 			readerThread.interrupt();
-			// this may block waiting for the lock of an individual stream,
-			// which in turn may block waiting for rawOutLock.
 			exchangesById.get().forEach(MultiplexedExchange::closeWithoutSendingEOF);
 		}
 	}

@@ -5,39 +5,24 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.Objects;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MultiplexedOutputStream extends OutputStream
 {
 	private final MultiplexedExchangePool	multiplexer;
 	private final int						exchangeId;
 
-	private final Object	lock;
-	private int				off;
-	private int				len;
-	private byte[]			buf;
-	private State			state;
+	private final AtomicReference<State>	state;
+	private final Semaphore					waitingForReadyBytesSemaphore;
 
-	MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId, MultiplexedExchangePool.State state) throws ClosedException
-	{
-		this(multiplexer, exchangeId, switch(state)
-		{
-			case OPEN -> State.NOT_WRITING;
-			case CLOSED -> throw new ClosedException();
-			case GLOBAL_EOF -> State.EOF;
-			case IO_EXCEPTION -> State.IO_EXCEPTION;
-		});
-	}
-	MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId)
-	{
-		this(multiplexer, exchangeId, State.NOT_WRITING);
-	}
-	private MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId, State state)
+	public MultiplexedOutputStream(MultiplexedExchangePool multiplexer, int exchangeId)
 	{
 		this.multiplexer = multiplexer;
 		this.exchangeId = exchangeId;
 
-		this.lock = new Object();
-		this.state = state;
+		this.state = new AtomicReference<>(new State(State.Kind.IDLE, -1));
+		this.waitingForReadyBytesSemaphore = new Semaphore(0);
 	}
 
 	@Override
@@ -53,152 +38,181 @@ public class MultiplexedOutputStream extends OutputStream
 		if(len == 0)
 			return;
 
-		synchronized(lock)
+		State oldState = state.getAndUpdate(state -> switch(state.kind())
 		{
-			switch(state)
-			{
-				case NOT_WRITING -> waitForReadyBytesChecked(buf, off, len);
-				case WAITING_FOR_AVAILABLE_BYTES -> writeImmediately(buf, off, len);
-				case WAITING_FOR_READY_BYTES, WRITE_FINISHED_THEN_NOT_WRITING, WRITE_FINISHED_THEN_WAITING_FOR_AVAILABLE_BYTES -> throw new IOException("Another thread is currently writing");
-				case EOF -> throwEOF();
-				case IO_EXCEPTION -> multiplexer.throwIOException();
-				case CLOSED -> throwClosed();
-			};
+			case IDLE -> new State(State.Kind.WAITING_FOR_READY_BYTES, -1);
+			case WAITING_FOR_AVAILABLE_BYTES -> new State(State.Kind.WRITING, -1);
+			case WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES, EOF, IO_EXCEPTION, CLOSED -> state;
+		});
+		switch(oldState.kind())
+		{
+			case IDLE -> writeChecked(buf, off, len, 0);
+			case WAITING_FOR_AVAILABLE_BYTES -> writeChecked(buf, off, len, oldState.readyBytes());
+			case WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES -> throw new IOException("Another thread is currently writing");
+			case EOF -> throwEOF();
+			case IO_EXCEPTION -> multiplexer.throwIOException();
+			case CLOSED -> throwClosed();
 		}
 	}
 
-	private void writeImmediately(byte[] buf, int off, int len) throws UnexpectedResponseException, ClosedException, EOFException, InterruptedIOException, IOException
+	private void writeChecked(byte[] buf, int off, int len, int readyBytes)
+			throws UnexpectedResponseException, ClosedException, EOFException, InterruptedIOException, IOException
 	{
-		int lenToWrite = Math.min(len, this.len);
-
-		multiplexer.writeBytes(exchangeId, buf, off, lenToWrite);
-		off += lenToWrite;
-		len -= lenToWrite;
-		// the read request is now finished, whether this.len is now 0 or not
-
-		if(len == 0)
-		{
-			state = State.NOT_WRITING;
-			return;
-		}
-
-		waitForReadyBytesChecked(buf, off, len);
-	}
-
-	private void waitForReadyBytesChecked(byte[] buf, int off, int len) throws UnexpectedResponseException, ClosedException, EOFException, InterruptedIOException, IOException
-	{
-		this.buf = buf;
-		this.off = off;
-		this.len = len;
-		this.state = State.WAITING_FOR_READY_BYTES;
-
+		boolean immediateWriteStateUpdateUnneccessaryWhenLenNotNull = false;
 		for(;;)
 		{
+			if(readyBytes != 0)
+			{
+				int lenToWrite = Math.min(len, readyBytes);
+
+				multiplexer.writeBytes(exchangeId, buf, off, lenToWrite);
+				off += lenToWrite;
+				len -= lenToWrite;
+				// The read request is now finished, regardless of whether readyBytes > len or not.
+				// This is because MultiplexedInputStream will let read return after any number of bytes have been read.
+
+				if(len == 0)
+				{
+					// write request finished
+					state.getAndUpdate(state -> switch(state.kind())
+					{
+						case WRITING -> new State(State.Kind.IDLE, -1);
+						case WRITING_AND_GOT_NEXT_READY_BYTES -> new State(State.Kind.WAITING_FOR_AVAILABLE_BYTES, state.readyBytes());
+						// we got shut down in the meantime; keep that state, but don't throw since the write finished
+						case EOF, IO_EXCEPTION, CLOSED -> state;
+						case IDLE, WAITING_FOR_AVAILABLE_BYTES, WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES -> throw new IllegalStateException("impossible state; this is a bug");
+					});
+					return;
+				}
+
+				if(!immediateWriteStateUpdateUnneccessaryWhenLenNotNull)
+				{
+					State oldState = state.getAndUpdate(state -> switch(state.kind())
+					{
+						case WRITING -> new State(State.Kind.WAITING_FOR_READY_BYTES, -1);
+						case WRITING_AND_GOT_NEXT_READY_BYTES -> new State(State.Kind.WRITING, -1);
+						// we got shut down in the meantime; keep that state
+						case EOF, IO_EXCEPTION, CLOSED -> state;
+						case IDLE, WAITING_FOR_AVAILABLE_BYTES, WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES -> throw new IllegalStateException("impossible state; this is a bug");
+					});
+
+					switch(oldState.kind())
+					{
+						case WRITING ->
+						{
+							// loop body will continue normally
+						}
+						case WRITING_AND_GOT_NEXT_READY_BYTES ->
+						{
+							readyBytes = oldState.readyBytes();
+							// skip waiting and directly go to the next loop iteration,
+							// which starts with checking readyBytes
+							continue;
+						}
+						case EOF -> throwEOF();
+						case IO_EXCEPTION -> multiplexer.throwIOException();
+						case CLOSED -> throwClosed();
+						case IDLE, WAITING_FOR_AVAILABLE_BYTES, WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES -> throw new IllegalStateException("impossible state; this is a bug");
+					}
+				}
+			}
+
 			try
 			{
-				lock.wait();
+				waitingForReadyBytesSemaphore.acquire();
 			} catch(InterruptedException e)
 			{
+				//TODO clean up state?
 				throw new InterruptedIOException();
 			}
 
-			switch(state)
+			int lenFinal = len;
+			State oldState = state.getAndUpdate(state -> switch(state.kind())
 			{
-				case NOT_WRITING, WAITING_FOR_AVAILABLE_BYTES -> throw new IllegalStateException("Output stream in impossible state");
-				case WAITING_FOR_READY_BYTES ->
+				// If the read request will finish, we can't directly set to IDLE / WAITING_FOR_AVAILABLE_BYTES,
+				// because another writing thread could be faster than us.
+				// If the read request won't be finished now, we can directly set the state to WAITING_FOR_READY_BYTES,
+				// because other writing threads won't be allowed writing in either case.
+				case JUST_GOT_READY_BYTES -> new State(lenFinal > state.readyBytes() ? State.Kind.WAITING_FOR_READY_BYTES : State.Kind.WRITING, -1);
+				// we got shut down in the meantime; keep that state
+				case EOF, IO_EXCEPTION, CLOSED -> state;
+				// spurious wakeup is impossible with semaphores, so this means somehow the semaphore got released unexpectedly
+				case WAITING_FOR_READY_BYTES -> state;
+				case IDLE, WAITING_FOR_AVAILABLE_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES -> throw new IllegalStateException("impossible state; this is a bug");
+			});
+			switch(oldState.kind())
+			{
+				case JUST_GOT_READY_BYTES ->
 				{
-					continue;
-				}
-				case WRITE_FINISHED_THEN_WAITING_FOR_AVAILABLE_BYTES ->
-				{
-					state = State.WAITING_FOR_AVAILABLE_BYTES;
-				}
-				case WRITE_FINISHED_THEN_NOT_WRITING ->
-				{
-					state = State.NOT_WRITING;
+					// loop will continue as normal.
+					readyBytes = oldState.readyBytes();
+					// if len != 0, the state update function above will already have set the state to WAITING_FOR_READY_BYTES,
+					// so the write part won't have to update the state in that case.
+					immediateWriteStateUpdateUnneccessaryWhenLenNotNull = true;
 				}
 				case EOF -> throwEOF();
 				case IO_EXCEPTION -> multiplexer.throwIOException();
 				case CLOSED -> throwClosed();
-			};
-			return;
+				case WAITING_FOR_READY_BYTES -> throw new IllegalStateException("spurious wakeup of semaphore; this is a bug");
+				case IDLE, WAITING_FOR_AVAILABLE_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES -> throw new IllegalStateException("impossible state; this is a bug");
+			}
 		}
 	}
 
 	void recordReadyForReceiving(int len) throws UnexpectedResponseException, IOException
 	{
-		synchronized(lock)
+		if(len <= 0)
+			throw new UnexpectedResponseException("ready bytes len <= 0");
+
+		State oldState = state.getAndUpdate(state -> switch(state.kind())
 		{
-			if(len <= 0)
-				throw new UnexpectedResponseException("ready bytes len <= 0");
+			case IDLE -> new State(State.Kind.WAITING_FOR_AVAILABLE_BYTES, len);
+			case WAITING_FOR_READY_BYTES -> new State(State.Kind.JUST_GOT_READY_BYTES, len);
+			case WRITING -> new State(State.Kind.WRITING_AND_GOT_NEXT_READY_BYTES, len);
+			// illegal response because two reads
+			case WAITING_FOR_AVAILABLE_BYTES, JUST_GOT_READY_BYTES, WRITING_AND_GOT_NEXT_READY_BYTES -> state;
+			// we got shut down in the meantime; keep that state
+			case EOF, IO_EXCEPTION, CLOSED -> state;
+		});
 
-			switch(state)
+		switch(oldState.kind())
+		{
+			case IDLE, WRITING ->
 			{
-				case NOT_WRITING ->
-				{
-					this.len = len;
-					state = State.WAITING_FOR_AVAILABLE_BYTES;
-				}
-				case WAITING_FOR_AVAILABLE_BYTES, WRITE_FINISHED_THEN_WAITING_FOR_AVAILABLE_BYTES -> throw new UnexpectedResponseException("Two reads occurred");
-				case WAITING_FOR_READY_BYTES ->
-				{
-					int lenToWrite = Math.min(len, this.len);
-
-					multiplexer.writeBytes(exchangeId, buf, off, lenToWrite);
-					off += lenToWrite;
-					this.len -= lenToWrite;
-
-					// the read request is now finished, whether len is now 0 or not
-					if(this.len == 0)
-					{
-						// don't keep unnecessary reference
-						this.buf = null;
-						state = State.WRITE_FINISHED_THEN_NOT_WRITING;
-						lock.notify();
-					}
-				}
-				case WRITE_FINISHED_THEN_NOT_WRITING ->
-				{
-					// Another read request could occur before the writing thread gets the lock and resets state to NOT_WRITING.
-					// So, we need to handle this case specially.
-					this.len = len;
-					state = State.WRITE_FINISHED_THEN_WAITING_FOR_AVAILABLE_BYTES;
-				}
-				case EOF -> throw new UnexpectedResponseException("Got data although we are EOF");
-				case IO_EXCEPTION -> multiplexer.throwIOException();
-				case CLOSED ->
-				{
-					// ignore, we already sent the EOF
-				}
+				// nothing to do; already handled by update function.
+				// In particular, don't release the semaphore;
+				// that's only necessary when the writing thread was WAITING_FOR_READY_BYTES.
+			}
+			case WAITING_FOR_READY_BYTES -> waitingForReadyBytesSemaphore.release();
+			case WAITING_FOR_AVAILABLE_BYTES, JUST_GOT_READY_BYTES, WRITING_AND_GOT_NEXT_READY_BYTES -> throw new UnexpectedResponseException("Two reads occurred");
+			case EOF -> throw new UnexpectedResponseException("Got ready bytes although we are EOF");
+			case IO_EXCEPTION -> multiplexer.throwIOException();
+			case CLOSED ->
+			{
+				// ignore, we already sent the EOF
 			}
 		}
 	}
 
 	void eofReached()
 	{
-		synchronized(lock)
+		State oldState = state.getAndUpdate(state -> switch(state.kind())
 		{
-			if(state == State.CLOSED)
-				return;
-
-			// don't keep unnecessary reference
-			this.buf = null;
-			state = State.EOF;
-			lock.notify();
-		}
+			case IDLE, WAITING_FOR_AVAILABLE_BYTES, WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES -> new State(State.Kind.EOF, -1);
+			case EOF, IO_EXCEPTION, CLOSED -> state;
+		});
+		if(oldState.kind() == State.Kind.WAITING_FOR_READY_BYTES)
+			waitingForReadyBytesSemaphore.release();
 	}
 	void ioExceptionThrown()
 	{
-		synchronized(lock)
+		State oldState = state.getAndUpdate(state -> switch(state.kind())
 		{
-			if(state == State.CLOSED)
-				return;
-
-			// don't keep unnecessary reference
-			this.buf = null;
-			state = State.IO_EXCEPTION;
-			lock.notify();
-		}
+			case IDLE, WAITING_FOR_AVAILABLE_BYTES, WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES -> new State(State.Kind.IO_EXCEPTION, -1);
+			case EOF, IO_EXCEPTION, CLOSED -> state;
+		});
+		if(oldState.kind() == State.Kind.WAITING_FOR_READY_BYTES)
+			waitingForReadyBytesSemaphore.release();
 	}
 
 	private <R> R throwEOF() throws EOFException
@@ -219,29 +233,29 @@ public class MultiplexedOutputStream extends OutputStream
 	}
 	boolean closeWithoutSendingEOF()
 	{
-		synchronized(lock)
+		State oldState = state.getAndUpdate(state -> switch(state.kind())
 		{
-			if(state == State.CLOSED)
-				return false;
-
-			// don't keep unnecessary reference
-			buf = null;
-			state = State.CLOSED;
-			lock.notify();
-
-			return true;
-		}
+			case IDLE, WAITING_FOR_AVAILABLE_BYTES, WAITING_FOR_READY_BYTES, JUST_GOT_READY_BYTES, WRITING, WRITING_AND_GOT_NEXT_READY_BYTES, EOF, IO_EXCEPTION -> new State(State.Kind.CLOSED, -1);
+			case CLOSED -> state;
+		});
+		if(oldState.kind() == State.Kind.WAITING_FOR_READY_BYTES)
+			waitingForReadyBytesSemaphore.release();
+		return oldState.kind() != State.Kind.CLOSED;
 	}
 
-	private static enum State
+	private static record State(Kind kind, int readyBytes)
 	{
-		NOT_WRITING,
-		WAITING_FOR_AVAILABLE_BYTES,
-		WAITING_FOR_READY_BYTES,
-		WRITE_FINISHED_THEN_WAITING_FOR_AVAILABLE_BYTES,
-		WRITE_FINISHED_THEN_NOT_WRITING,
-		EOF,
-		IO_EXCEPTION,
-		CLOSED;
+		private static enum Kind
+		{
+			IDLE,
+			WAITING_FOR_AVAILABLE_BYTES,
+			WAITING_FOR_READY_BYTES,
+			JUST_GOT_READY_BYTES,
+			WRITING,
+			WRITING_AND_GOT_NEXT_READY_BYTES,
+			EOF,
+			IO_EXCEPTION,
+			CLOSED;
+		}
 	}
 }
