@@ -17,6 +17,7 @@ import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import net.haspamelodica.exchanges.multiplexed.MultiplexedExchangePool;
@@ -24,7 +25,7 @@ import net.haspamelodica.exchanges.util.AutoClosablePair;
 
 public class TestMultiplexedExchange
 {
-	@Test
+	@RepeatedTest(300)
 	public void testCreateAndTeardown() throws Exception
 	{
 		runTest(pool ->
@@ -32,7 +33,7 @@ public class TestMultiplexedExchange
 		{});
 	}
 
-	@Test
+	@RepeatedTest(300)
 	public void testBasicSingleStream() throws Exception
 	{
 		byte[] msg = b("test");
@@ -41,13 +42,17 @@ public class TestMultiplexedExchange
 				pool -> assertArrayEquals(msg, pool.createNewExchange().in().readNBytes(msg.length)));
 	}
 
-	@Test
-	public void testSingleStreamOutEof() throws Exception
+	@RepeatedTest(300)
+	public void testSingleStreamOutEofNoBytes() throws Exception
 	{
 		runTest(
 				pool -> pool.createNewExchange().out().close(),
 				pool -> assertEquals(-1, pool.createNewExchange().in().read()));
+	}
 
+	@RepeatedTest(300)
+	public void testSingleStreamOutEofWithBytes() throws Exception
+	{
 		byte[] msg = b("test");
 		runTest(
 				pool ->
@@ -59,7 +64,7 @@ public class TestMultiplexedExchange
 				pool -> assertArrayEquals(msg, pool.createNewExchange().in().readAllBytes()));
 	}
 
-	@Test
+	@RepeatedTest(300)
 	public void testSingleStreamInEof() throws Exception
 	{
 		byte[] msg = b("test");
@@ -75,10 +80,10 @@ public class TestMultiplexedExchange
 		System.out.println("Seed: " + seed);
 
 		String msgString = "";
-		for(int i = 0; i < 100; i ++)
+		for(int i = 0; i < 400; i ++)
 			msgString += "This is a long message, line " + i + ".\n";
 		byte[] msg = b(msgString);
-		int parallelExchanges = 100;
+		int parallelExchanges = 400;
 
 		runTest((pool1, pool2) ->
 		{
