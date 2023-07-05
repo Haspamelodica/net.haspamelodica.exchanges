@@ -21,10 +21,13 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import net.haspamelodica.exchanges.multiplexed.MultiplexedExchangePool;
-import net.haspamelodica.exchanges.util.AutoClosablePair;
+import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
-public class TestMultiplexedExchange
+public class TestExchanges
 {
+	private static final boolean	TEST_MULTIPLEXED	= false;
+	private static final boolean	TEST_PIPED			= true;
+
 	@RepeatedTest(300)
 	public void testCreateAndTeardown() throws Exception
 	{
@@ -115,7 +118,7 @@ public class TestMultiplexedExchange
 		});
 	}
 
-	private void startStressTestsThreads(MultiplexedExchangePool pool, boolean readFirst, Random seedRnd, byte[] msg, int parallelExchanges,
+	private void startStressTestsThreads(ExchangePool pool, boolean readFirst, Random seedRnd, byte[] msg, int parallelExchanges,
 			List<AtomicReference<Exception>> exceptionRefs, List<AtomicReference<Error>> errorRefs, List<Thread> threads)
 	{
 		for(int i = 0; i < parallelExchanges; i ++)
@@ -171,7 +174,7 @@ public class TestMultiplexedExchange
 		return string.getBytes(StandardCharsets.UTF_8);
 	}
 
-	private static void runTest(ThrowingConsumer<MultiplexedExchangePool> action1, ThrowingConsumer<MultiplexedExchangePool> action2) throws Exception
+	private static void runTest(ThrowingConsumer<ExchangePool> action1, ThrowingConsumer<ExchangePool> action2) throws Exception
 	{
 		runTest((pool1, pool2) ->
 		{
@@ -222,14 +225,21 @@ public class TestMultiplexedExchange
 		return thread;
 	}
 
-	private static void runTest(ThrowingBiConsumer<MultiplexedExchangePool, MultiplexedExchangePool> action) throws Exception
+	private static void runTest(ThrowingBiConsumer<ExchangePool, ExchangePool> action) throws Exception
 	{
-		try(AutoClosablePair<Exchange, Exchange> rawPipedExchange = Exchange.openPiped();
-				MultiplexedExchangePool pool1 = new MultiplexedExchangePool(rawPipedExchange.a());
-				MultiplexedExchangePool pool2 = new MultiplexedExchangePool(rawPipedExchange.b()))
-		{
-			action.accept(pool1, pool2);
-		}
+		if(TEST_MULTIPLEXED)
+			try(AutoCloseablePair<Exchange, Exchange> rawPipedExchange = Exchange.openPiped();
+					MultiplexedExchangePool pool1 = new MultiplexedExchangePool(rawPipedExchange.a());
+					MultiplexedExchangePool pool2 = new MultiplexedExchangePool(rawPipedExchange.b()))
+			{
+				action.accept(pool1, pool2);
+			}
+
+		if(TEST_PIPED)
+			try(MultiplePipesExchangePool pool = new MultiplePipesExchangePool())
+			{
+				action.accept(pool, pool.getClient());
+			}
 	}
 
 	private static interface ThrowingRunnable

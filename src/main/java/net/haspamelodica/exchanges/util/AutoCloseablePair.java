@@ -1,6 +1,6 @@
 package net.haspamelodica.exchanges.util;
 
-public record AutoClosablePair<A extends AutoCloseable, B extends AutoCloseable>(A a, B b) implements AutoCloseable
+public record AutoCloseablePair<A extends AutoCloseable, B extends AutoCloseable>(A a, B b) implements AutoCloseable
 {
 	@Override
 	public void close() throws Exception
