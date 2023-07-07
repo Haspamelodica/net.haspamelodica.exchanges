@@ -33,6 +33,7 @@ public class MultiplexedExchangePool implements ExchangePool
 
 	private static final int SIGN_BIT = Integer.MIN_VALUE;
 
+	private final Exchange			rawExchange;
 	private final DataInputStream	rawIn;
 	private final Object			rawOutLock;
 	private final DataOutputStream	rawOut;
@@ -47,6 +48,7 @@ public class MultiplexedExchangePool implements ExchangePool
 
 	public MultiplexedExchangePool(Exchange rawExchange)
 	{
+		this.rawExchange = rawExchange;
 		this.rawIn = new DataInputStream(rawExchange.in());
 		this.rawOutLock = new Object();
 		this.rawOut = new DataOutputStream(rawExchange.out());
@@ -280,35 +282,41 @@ public class MultiplexedExchangePool implements ExchangePool
 	@Override
 	/**
 	 * Closes this exchange pool and all of its created exchanges.
-	 * Does not close rawIn and rawOut provided in the constructor.
-	 * <p>
-	 * The exchange pool might continue reading some bytes from rawIn after close returns,
-	 * if rawIn does not throw an IOException when the reading thread is interrupted.
-	 * Also, the exchange pool might continue writing some bytes to rawOut after close returns.
+	 * Also closes the rawExchange provided in the constructor.
 	 */
 	public void close() throws IOException
 	{
-		State oldState;
-		// necessary to be synchronized because of the exception handling in of readerThread
-		// and the way new exchanges are created
-		synchronized(state)
+		try
 		{
-			oldState = state.getAndSet(State.CLOSED);
-			if(oldState != State.OPEN)
+			// First, try to do an orderly shutdown:
+			// set state to CLOSED, make createNewExchange impossible,
+			// notify the reader thread, and close all created exchanges.
+			// necessary to be synchronized because of the exception handling in of readerThread
+			// and the way new exchanges are created
+			synchronized(state)
 			{
-				if(oldState == State.IO_EXCEPTION)
-					// clean old reference
-					ioException.set(null);
-				return;
-			}
-			// notify createNewExchange this multiplexer is closed
-			if(oldState != State.CLOSED)
-				// The BlockingQueue we're using (LinkedBlockingQueue) does not support null entries.
-				// So, we have to use sentry objects instead.
-				readyExchanges.add(MultiplexedExchange.createSentry());
+				State oldState = state.getAndSet(State.CLOSED);
+				if(oldState != State.OPEN)
+				{
+					if(oldState == State.IO_EXCEPTION)
+						// clean old reference
+						ioException.set(null);
+					return;
+				}
+				// notify createNewExchange this multiplexer is closed
+				if(oldState != State.CLOSED)
+					// The BlockingQueue we're using (LinkedBlockingQueue) does not support null entries.
+					// So, we have to use sentry objects instead.
+					readyExchanges.add(MultiplexedExchange.createSentry());
 
-			readerThread.interrupt();
-			exchangesById.get().forEach(MultiplexedExchange::closeWithoutSendingEOF);
+				readerThread.interrupt();
+				exchangesById.get().forEach(MultiplexedExchange::closeWithoutSendingEOF);
+			}
+		} finally
+		{
+			// Then, close rawExchange.
+			// Note that at this point it's still possible some thread reads from rawIn or writes to rawOut.
+			rawExchange.close();
 		}
 	}
 

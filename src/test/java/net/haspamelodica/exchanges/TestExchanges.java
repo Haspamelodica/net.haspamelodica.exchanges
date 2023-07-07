@@ -25,7 +25,7 @@ import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
 public class TestExchanges
 {
-	private static final boolean	TEST_MULTIPLEXED	= false;
+	private static final boolean	TEST_MULTIPLEXED	= true;
 	private static final boolean	TEST_PIPED			= true;
 
 	@RepeatedTest(300)
