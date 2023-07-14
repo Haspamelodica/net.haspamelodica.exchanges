@@ -19,7 +19,7 @@ public class FifosExchangePoolServer extends SimpleExchangePool
 	{
 		this.fifosDir = fifosDir;
 		this.nextExchangeId = new AtomicInteger();
-		this.controlOut = Files.newOutputStream(controlFifo);
+		this.controlOut = Exchange.openFifoOutput(controlFifo);
 	}
 
 	@Override
@@ -39,23 +39,7 @@ public class FifosExchangePoolServer extends SimpleExchangePool
 		controlOut.write(0);
 		controlOut.flush();
 
-		OutputStream out = Files.newOutputStream(serverToClientFifo);
-		InputStream in;
-		try
-		{
-			in = Files.newInputStream(clientToServerFifo);
-		} catch(IOException | RuntimeException e)
-		{
-			try
-			{
-				out.close();
-			} catch(IOException | RuntimeException e2)
-			{
-				e.addSuppressed(e2);
-			}
-			throw e;
-		}
-		return new Exchange(in, out);
+		return Exchange.openFifos(true, clientToServerFifo, serverToClientFifo);
 	}
 
 	@Override
