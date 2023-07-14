@@ -37,6 +37,7 @@ public class FifosExchangePoolServer extends SimpleExchangePool
 		if(!Files.exists(clientToServerFifo))
 			mkfifo(fifosDir, clientToServerFifoName);
 		controlOut.write(0);
+		controlOut.flush();
 
 		OutputStream out = Files.newOutputStream(serverToClientFifo);
 		InputStream in;
