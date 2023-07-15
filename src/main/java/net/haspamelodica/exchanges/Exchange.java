@@ -112,6 +112,11 @@ public record Exchange(InputStream in, OutputStream out) implements AutoCloseabl
 			{
 				return realIn.read();
 			}
+			@Override
+			public void close() throws IOException
+			{
+				realIn.close();
+			}
 		};
 	}
 	/**
@@ -132,6 +137,16 @@ public record Exchange(InputStream in, OutputStream out) implements AutoCloseabl
 			public void write(int b) throws IOException
 			{
 				realOut.write(b);
+			}
+			@Override
+			public void flush() throws IOException
+			{
+				realOut.flush();
+			}
+			@Override
+			public void close() throws IOException
+			{
+				realOut.close();
 			}
 		};
 	}
