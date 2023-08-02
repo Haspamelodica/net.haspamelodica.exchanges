@@ -43,7 +43,9 @@ public interface Exchange extends AutoCloseable
 
 	/**
 	 * For fifos, this method should be used instead of {@link Files#newInputStream(Path, java.nio.file.OpenOption...)}
-	 * because of a bug in the JDK: https://bugs.openjdk.org/browse/JDK-8233451
+	 * and {@link Files#newOutputStream(Path, java.nio.file.OpenOption...)}
+	 * because of a bug in the JDK: https://bugs.openjdk.org/browse/JDK-8233451.
+	 * See also {@link #openFifoInput(Path)} and {@link #openFifoOutput(Path)}.
 	 */
 	public static Exchange openFifos(boolean inFirst, Path inPath, Path outPath) throws IOException
 	{
@@ -88,6 +90,18 @@ public interface Exchange extends AutoCloseable
 		return of(in, out);
 	}
 
+	public static AutoCloseablePair<Exchange, Exchange> openPiped()
+	{
+		// java.io.Piped[In|Out]putStream's don't work with multiple threads (they cause random IOExceptions with message "Pipe broken").
+		@SuppressWarnings("resource")
+		Pipe pipe1 = new Pipe();
+		@SuppressWarnings("resource")
+		Pipe pipe2 = new Pipe();
+		return new AutoCloseablePair<>(
+				of(pipe1.in(), pipe2.out()),
+				of(pipe2.in(), pipe1.out()));
+	}
+
 	public default Exchange wrapBuffered()
 	{
 		return of(new BufferedInputStream(in()), new BufferedOutputStream(out()), closeAction());
@@ -116,21 +130,10 @@ public interface Exchange extends AutoCloseable
 		return this::close;
 	}
 
-	public static AutoCloseablePair<Exchange, Exchange> openPiped()
-	{
-		// java.io.Piped[In|Out]putStream's don't work with multiple threads (they cause random IOExceptions with message "Pipe broken").
-		@SuppressWarnings("resource")
-		Pipe pipe1 = new Pipe();
-		@SuppressWarnings("resource")
-		Pipe pipe2 = new Pipe();
-		return new AutoCloseablePair<>(
-				of(pipe1.in(), pipe2.out()),
-				of(pipe2.in(), pipe1.out()));
-	}
-
 	/**
 	 * For fifos, this method should be used instead of {@link Files#newInputStream(Path, java.nio.file.OpenOption...)}
-	 * because of a bug in the JDK: https://bugs.openjdk.org/browse/JDK-8233451
+	 * because of a bug in the JDK: https://bugs.openjdk.org/browse/JDK-8233451.
+	 * See also {@link #openFifoOutput(Path)}.
 	 */
 	public static InputStream openFifoInput(Path path) throws IOException
 	{
@@ -155,8 +158,9 @@ public interface Exchange extends AutoCloseable
 		};
 	}
 	/**
-	 * For fifos, this method should be used instead of {@link Files#newInputStream(Path, java.nio.file.OpenOption...)}
-	 * because of a bug in the JDK: https://bugs.openjdk.org/browse/JDK-8233451
+	 * For fifos, this method should be used instead of {@link Files#newOutputStream(Path, java.nio.file.OpenOption...)}
+	 * because of a bug in the JDK: https://bugs.openjdk.org/browse/JDK-8233451.
+	 * See also {@link #openFifoInput(Path)}.
 	 */
 	public static OutputStream openFifoOutput(Path path) throws IOException
 	{
