@@ -5,24 +5,40 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import net.haspamelodica.exchanges.pipes.Pipe;
+import net.haspamelodica.exchanges.stats.StatisticsExchange;
 import net.haspamelodica.exchanges.util.AutoCloseablePair;
+import net.haspamelodica.exchanges.util.IORunnable;
 
-public record Exchange(InputStream in, OutputStream out) implements AutoCloseable
+public interface Exchange extends AutoCloseable
 {
+	public InputStream in();
+	public OutputStream out();
+
 	@Override
-	public void close() throws IOException
+	public void close() throws IOException;
+
+	public static Exchange of(InputStream in, OutputStream out)
 	{
-		try
+		return new ExchangeImpl(in, out, () ->
 		{
-			in.close();
-		} finally
-		{
-			out.close();
-		}
+			try
+			{
+				in.close();
+			} finally
+			{
+				out.close();
+			}
+		});
+	}
+
+	public static Exchange of(InputStream in, OutputStream out, IORunnable closeAction)
+	{
+		return new ExchangeImpl(in, out, closeAction);
 	}
 
 	/**
@@ -69,17 +85,35 @@ public record Exchange(InputStream in, OutputStream out) implements AutoCloseabl
 			}
 		}
 
-		return new Exchange(in, out);
+		return of(in, out);
 	}
 
-	public Exchange wrapBuffered()
+	public default Exchange wrapBuffered()
 	{
-		return new Exchange(new BufferedInputStream(in), new BufferedOutputStream(out));
+		return of(new BufferedInputStream(in()), new BufferedOutputStream(out()), closeAction());
 	}
 
-	public DataExchange wrapData()
+	public default StatisticsExchange wrapStatistics()
+	{
+		return wrapStatistics(null);
+	}
+	public default StatisticsExchange wrapStatistics(PrintStream statsPrintOut)
+	{
+		return wrapStatistics(statsPrintOut, null);
+	}
+	public default StatisticsExchange wrapStatistics(PrintStream statsPrintOut, String prefix)
+	{
+		return StatisticsExchange.wrap(this, statsPrintOut, prefix);
+	}
+
+	public default DataExchange wrapData()
 	{
 		return DataExchange.from(this);
+	}
+
+	public default IORunnable closeAction()
+	{
+		return this::close;
 	}
 
 	public static AutoCloseablePair<Exchange, Exchange> openPiped()
@@ -90,8 +124,8 @@ public record Exchange(InputStream in, OutputStream out) implements AutoCloseabl
 		@SuppressWarnings("resource")
 		Pipe pipe2 = new Pipe();
 		return new AutoCloseablePair<>(
-				new Exchange(pipe1.in(), pipe2.out()),
-				new Exchange(pipe2.in(), pipe1.out()));
+				of(pipe1.in(), pipe2.out()),
+				of(pipe2.in(), pipe1.out()));
 	}
 
 	/**

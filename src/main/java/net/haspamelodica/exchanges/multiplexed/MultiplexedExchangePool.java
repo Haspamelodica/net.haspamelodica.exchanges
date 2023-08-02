@@ -175,7 +175,7 @@ public class MultiplexedExchangePool implements ExchangePool
 		}
 
 		if(!exchange.isSentry())
-			return exchange.toExchange();
+			return exchange.asExchange();
 
 		// exchange.isSentry() means the multiplexer shut down (closed, IOException, or EOF).
 		// This will happen if the multiplexer is closed while createNewExchange

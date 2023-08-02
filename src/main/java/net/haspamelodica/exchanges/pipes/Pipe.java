@@ -181,7 +181,7 @@ public class Pipe implements AutoCloseable
 
 	public Exchange asExchange()
 	{
-		return new Exchange(in(), out());
+		return Exchange.of(in(), out(), this::close);
 	}
 
 	@Override

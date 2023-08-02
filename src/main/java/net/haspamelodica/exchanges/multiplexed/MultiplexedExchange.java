@@ -40,9 +40,10 @@ public class MultiplexedExchange
 		return id;
 	}
 
-	Exchange toExchange()
+	Exchange asExchange()
 	{
-		return new Exchange(in, out);
+		// No need for extra close action: if we get closed, all we do is close in and out.
+		return Exchange.of(in, out);
 	}
 
 	void outEofReached()
