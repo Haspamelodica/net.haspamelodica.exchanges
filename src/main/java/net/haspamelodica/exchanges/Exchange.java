@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import net.haspamelodica.exchanges.pipes.Pipe;
 import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
 public record Exchange(InputStream in, OutputStream out) implements AutoCloseable

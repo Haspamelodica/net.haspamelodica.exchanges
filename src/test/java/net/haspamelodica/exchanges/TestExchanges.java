@@ -21,6 +21,7 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import net.haspamelodica.exchanges.multiplexed.MultiplexedExchangePool;
+import net.haspamelodica.exchanges.pipes.PipesExchangePool;
 import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
 public class TestExchanges
@@ -236,7 +237,7 @@ public class TestExchanges
 			}
 
 		if(TEST_PIPED)
-			try(MultiplePipesExchangePool pool = new MultiplePipesExchangePool())
+			try(PipesExchangePool pool = new PipesExchangePool())
 			{
 				action.accept(pool, pool.getClient());
 			}

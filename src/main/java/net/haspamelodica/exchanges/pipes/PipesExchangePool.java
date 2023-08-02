@@ -1,14 +1,17 @@
-package net.haspamelodica.exchanges;
+package net.haspamelodica.exchanges.pipes;
 
 import java.util.concurrent.SynchronousQueue;
 
+import net.haspamelodica.exchanges.Exchange;
+import net.haspamelodica.exchanges.ExchangePool;
+import net.haspamelodica.exchanges.SimpleExchangePool;
 import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
-public class MultiplePipesExchangePool extends SimpleExchangePool
+public class PipesExchangePool extends SimpleExchangePool
 {
 	private final Client client;
 
-	public MultiplePipesExchangePool()
+	public PipesExchangePool()
 	{
 		this.client = new Client();
 	}

@@ -1,4 +1,4 @@
-package net.haspamelodica.exchanges;
+package net.haspamelodica.exchanges.pipes;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -7,6 +7,8 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
+
+import net.haspamelodica.exchanges.Exchange;
 
 public class Pipe implements AutoCloseable
 {

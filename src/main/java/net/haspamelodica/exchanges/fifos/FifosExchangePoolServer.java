@@ -1,12 +1,14 @@
-package net.haspamelodica.exchanges;
+package net.haspamelodica.exchanges.fifos;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ProcessBuilder.Redirect;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import net.haspamelodica.exchanges.Exchange;
+import net.haspamelodica.exchanges.SimpleExchangePool;
 
 public class FifosExchangePoolServer extends SimpleExchangePool
 {
