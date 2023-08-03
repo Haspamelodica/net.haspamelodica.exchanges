@@ -1,4 +1,4 @@
-package net.haspamelodica.exchanges.multiplexed;
+package net.haspamelodica.exchanges.util;
 
 import java.io.IOException;
 

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import net.haspamelodica.exchanges.Exchange;
 import net.haspamelodica.exchanges.ExchangePool;
+import net.haspamelodica.exchanges.util.ClosedException;
 
 /**
  * Returned streams are partly thread-safe: External synchronization is only necessary to make sure

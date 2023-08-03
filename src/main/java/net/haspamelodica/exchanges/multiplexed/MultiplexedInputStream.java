@@ -9,6 +9,8 @@ import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 
+import net.haspamelodica.exchanges.util.ClosedException;
+
 public class MultiplexedInputStream extends InputStream
 {
 	private final MultiplexedExchangePool	multiplexer;
