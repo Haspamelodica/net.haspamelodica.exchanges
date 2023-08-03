@@ -26,6 +26,9 @@ import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
 public class TestExchanges
 {
+	private static final int	STRESS_TEST_LENGTH_MULTIPLIER	= 400;
+	private static final int	STRESS_TEST_PARALLEL_EXCHANGES	= 400;
+
 	private static final boolean	TEST_MULTIPLEXED	= true;
 	private static final boolean	TEST_PIPED			= true;
 
@@ -84,10 +87,10 @@ public class TestExchanges
 		System.out.println("Seed: " + seed);
 
 		String msgString = "";
-		for(int i = 0; i < 400; i ++)
+		for(int i = 0; i < STRESS_TEST_LENGTH_MULTIPLIER; i ++)
 			msgString += "This is a long message, line " + i + ".\n";
 		byte[] msg = b(msgString);
-		int parallelExchanges = 400;
+		int parallelExchanges = STRESS_TEST_PARALLEL_EXCHANGES;
 
 		runTest((pool1, pool2) ->
 		{
