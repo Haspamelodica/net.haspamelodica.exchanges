@@ -1,5 +1,7 @@
 package net.haspamelodica.exchanges;
 
+import static net.haspamelodica.exchanges.sharedmem.SharedMemoryCommon.DEFAULT_BUSY_WAIT_TIMEOUT_NANOS;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -18,8 +20,8 @@ import net.haspamelodica.exchanges.sharedmem.SharedMemoryInputStream;
 import net.haspamelodica.exchanges.sharedmem.SharedMemoryOutputStream;
 import net.haspamelodica.exchanges.stats.StatisticsExchange;
 import net.haspamelodica.exchanges.util.AutoCloseableByteBuffer;
-import net.haspamelodica.exchanges.util.IOAutoCloseable;
 import net.haspamelodica.exchanges.util.AutoCloseablePair;
+import net.haspamelodica.exchanges.util.IOAutoCloseable;
 import net.haspamelodica.exchanges.util.IORunnable;
 
 public interface Exchange extends IOAutoCloseable
@@ -115,14 +117,18 @@ public interface Exchange extends IOAutoCloseable
 	}
 	public static AutoCloseablePair<Exchange, Exchange> openPiped(int bufsize)
 	{
-		Exchange pipe1 = openSharedMemoryPipe(bufsize);
-		Exchange pipe2 = openSharedMemoryPipe(bufsize);
+		return openPiped(bufsize, DEFAULT_BUSY_WAIT_TIMEOUT_NANOS);
+	}
+	public static AutoCloseablePair<Exchange, Exchange> openPiped(int bufsize, long busyWaitTimeoutNanos)
+	{
+		Exchange pipe1 = openSharedMemoryPipe(bufsize, busyWaitTimeoutNanos);
+		Exchange pipe2 = openSharedMemoryPipe(bufsize, busyWaitTimeoutNanos);
 		return new AutoCloseablePair<>(
 				ofNoExtraCloseAction(pipe1.in(), pipe2.out()),
 				ofNoExtraCloseAction(pipe2.in(), pipe1.out()));
 	}
 
-	private static Exchange openSharedMemoryPipe(int bufsize)
+	private static Exchange openSharedMemoryPipe(int bufsize, long busyWaitTimeoutNanos)
 	{
 		AutoCloseablePair<Exchange, Exchange> slowPipe = openPipedNoSharedMemory();
 		int bufsizeWithOverhead = SharedMemoryCommon.BUFSIZE_OVERHEAD + bufsize;
@@ -136,7 +142,7 @@ public interface Exchange extends IOAutoCloseable
 		{
 			try
 			{
-				inRef.set(new SharedMemoryInputStream(slowPipe.a(), buf));
+				inRef.set(new SharedMemoryInputStream(slowPipe.a(), buf, busyWaitTimeoutNanos));
 			} catch(IOException e)
 			{
 				inCreationIOExceptionRef.set(e);
@@ -151,7 +157,7 @@ public interface Exchange extends IOAutoCloseable
 		SharedMemoryOutputStream out;
 		try
 		{
-			out = new SharedMemoryOutputStream(slowPipe.b(), buf);
+			out = new SharedMemoryOutputStream(slowPipe.b(), buf, busyWaitTimeoutNanos);
 		} catch(IOException e)
 		{
 			// This means that the slowPipe failed, which should not be possible.

@@ -1,5 +1,7 @@
 package net.haspamelodica.exchanges.sharedmem;
 
+import static net.haspamelodica.exchanges.sharedmem.SharedMemoryCommon.DEFAULT_BUSY_WAIT_TIMEOUT_NANOS;
+
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
@@ -22,6 +24,7 @@ public class SharedMemoryExchangePool extends SimpleExchangePool
 	private final FileChannel	sharedFileChannel;
 	private final boolean		isServer;
 	private final int			bufsizePerExchangeDirectionIncludingOverhead;
+	private final long			busyWaitTimeoutNanos;
 	private final AtomicInteger	nextMappingPosition;
 
 	public SharedMemoryExchangePool(ExchangePool slowExchangePool, Path sharedFile, boolean isServer,
@@ -32,15 +35,22 @@ public class SharedMemoryExchangePool extends SimpleExchangePool
 	public SharedMemoryExchangePool(ExchangePool slowExchangePool, Path sharedFile, boolean isServer, int bufsizePerExchangeDirection,
 			OpenOption... extraOpenOptions) throws IOException
 	{
-		this(slowExchangePool, FileChannel.open(sharedFile, Stream.concat(Stream.of(StandardOpenOption.READ, StandardOpenOption.WRITE),
-				Stream.of(extraOpenOptions)).toArray(OpenOption[]::new)), isServer, bufsizePerExchangeDirection);
+		this(slowExchangePool, sharedFile, isServer, bufsizePerExchangeDirection, DEFAULT_BUSY_WAIT_TIMEOUT_NANOS, extraOpenOptions);
 	}
-	public SharedMemoryExchangePool(ExchangePool slowExchangePool, FileChannel sharedFileChannel, boolean isServer, int bufsizePerExchangeDirection)
+	public SharedMemoryExchangePool(ExchangePool slowExchangePool, Path sharedFile, boolean isServer, int bufsizePerExchangeDirection,
+			long busyWaitTimeoutNanos, OpenOption... extraOpenOptions) throws IOException
+	{
+		this(slowExchangePool, FileChannel.open(sharedFile, Stream.concat(Stream.of(StandardOpenOption.READ, StandardOpenOption.WRITE),
+				Stream.of(extraOpenOptions)).toArray(OpenOption[]::new)), isServer, bufsizePerExchangeDirection, busyWaitTimeoutNanos);
+	}
+	public SharedMemoryExchangePool(ExchangePool slowExchangePool, FileChannel sharedFileChannel, boolean isServer,
+			int bufsizePerExchangeDirection, long busyWaitTimeoutNanos)
 	{
 		this.slowExchangePool = slowExchangePool;
 		this.sharedFileChannel = sharedFileChannel;
 		this.isServer = isServer;
 		this.bufsizePerExchangeDirectionIncludingOverhead = SharedMemoryCommon.BUFSIZE_OVERHEAD + bufsizePerExchangeDirection;
+		this.busyWaitTimeoutNanos = busyWaitTimeoutNanos;
 		this.nextMappingPosition = new AtomicInteger();
 		addCloseAction(slowExchangePool::close);
 		addCloseAction(sharedFileChannel::close);
@@ -52,10 +62,10 @@ public class SharedMemoryExchangePool extends SimpleExchangePool
 		// the null value will never be used, but makes the compiler happy
 		SharedMemoryInputStream in = null;
 		if(isServer)
-			in = new SharedMemoryInputStream(slowExchangePool.createNewExchange(), nextMapping());
-		SharedMemoryOutputStream out = new SharedMemoryOutputStream(slowExchangePool.createNewExchange(), nextMapping());
+			in = new SharedMemoryInputStream(slowExchangePool.createNewExchange(), nextMapping(), busyWaitTimeoutNanos);
+		SharedMemoryOutputStream out = new SharedMemoryOutputStream(slowExchangePool.createNewExchange(), nextMapping(), busyWaitTimeoutNanos);
 		if(!isServer)
-			in = new SharedMemoryInputStream(slowExchangePool.createNewExchange(), nextMapping());
+			in = new SharedMemoryInputStream(slowExchangePool.createNewExchange(), nextMapping(), busyWaitTimeoutNanos);
 		return Exchange.ofNoExtraCloseAction(in, out);
 	}
 
