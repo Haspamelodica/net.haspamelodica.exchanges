@@ -7,27 +7,22 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 
 import net.haspamelodica.exchanges.Exchange;
+import net.haspamelodica.exchanges.util.ClosedException;
 
 public class Pipe implements AutoCloseable
 {
-	private final Semaphore	writingReadySemaphore;
-	private final Semaphore	readingReadySemaphore;
-	private final Semaphore	readingFinishedSemaphore;
-
-	private boolean	closed;
-	private boolean	writtenSingleValue;
-	private byte	writtenValue;
-	private byte[]	writtenBuf;
-	private int		writtenOff;
-	private int		writtenLen;
+	private final AtomicReference<State>	state;
+	private final Semaphore					readReadySemaphore;
+	private final Semaphore					readDoneSemaphore;
 
 	public Pipe()
 	{
-		writingReadySemaphore = new Semaphore(1);
-		readingReadySemaphore = new Semaphore(0);
-		readingFinishedSemaphore = new Semaphore(0);
+		state = new AtomicReference<>(new State(Kind.IDLE));
+		readReadySemaphore = new Semaphore(0);
+		readDoneSemaphore = new Semaphore(0);
 	}
 
 	public InputStream in()
@@ -37,29 +32,13 @@ public class Pipe implements AutoCloseable
 			@Override
 			public int read() throws IOException
 			{
-				if(acquireIOAndCheckClosed(readingReadySemaphore))
+				byte[] buf = new byte[1];
+				int read = read(buf);
+				if(read < 0)
 					return -1;
-
-				if(writtenSingleValue)
-				{
-					int result = writtenValue & 0xFF;
-					writingReadySemaphore.release();
-					return result;
-				}
-
-				int oldWrittenLen = writtenLen;
-				if(oldWrittenLen > 1)
-				{
-					writtenLen = oldWrittenLen - 1;
-					int result = writtenBuf[writtenOff ++] & 0xFF;
-					readingReadySemaphore.release();
-					return result;
-				}
-
-				int result = writtenBuf[writtenOff] & 0xFF;
-				writtenBuf = null;
-				readingFinishedSemaphore.release();
-				return result;
+				if(read != 1)
+					throw new IOException("Internal error");
+				return buf[0] & 0xFF;
 			}
 
 			@Override
@@ -68,38 +47,83 @@ public class Pipe implements AutoCloseable
 				Objects.checkFromIndexSize(off, len, b.length);
 				if(len == 0)
 					return 0;
-				// from here: len > 1
+				// from here: len > 0
 
-				if(acquireIOAndCheckClosed(readingReadySemaphore))
-					return -1;
-
-				if(writtenSingleValue)
+				boolean initial = true;
+				for(;;)
 				{
-					b[off] = writtenValue;
-					writingReadySemaphore.release();
-					return 1;
-				}
+					State oldState = state.getAndUpdate(initial
+							? state -> switch(state.kind())
+							{
+								case IDLE -> new State(Kind.READ_WAITING_FOR_WRITE);
+								case TRANSFER_COMPLETE -> new State(Kind.TRANSFER_COMPLETE, null, -1, -1, Kind.READ_WAITING_FOR_WRITE);
+								case READ_WAITING_FOR_WRITE, BYTES_READY, TRANSFERRING, IN_CLOSED, OUT_CLOSED, CLOSED -> state;
+								case WRITE_WAITING_FOR_READ -> new State(Kind.TRANSFERRING);
+							}
+							: state -> switch(state.kind())
+							{
+								case IDLE, READ_WAITING_FOR_WRITE, WRITE_WAITING_FOR_READ, TRANSFERRING, TRANSFER_COMPLETE -> throw new IllegalStateException(state.kind().toString());
+								case BYTES_READY -> new State(Kind.TRANSFERRING);
+								case IN_CLOSED, OUT_CLOSED, CLOSED -> state;
+							});
+					int readOr0 = switch(oldState.kind())
+					{
+						case IDLE, TRANSFER_COMPLETE -> 0;
+						case READ_WAITING_FOR_WRITE, TRANSFERRING -> throw new IOException("Concurrent reads");
+						case WRITE_WAITING_FOR_READ, BYTES_READY ->
+						{
+							if(initial && oldState.kind() == Kind.BYTES_READY)
+								throw new IOException("Concurrent reads");
 
-				int oldWrittenLen = writtenLen;
-				if(oldWrittenLen > len)
-				{
-					writtenLen = oldWrittenLen - len;
-					System.arraycopy(writtenBuf, writtenOff, b, off, len);
-					writtenOff += len;
-					readingReadySemaphore.release();
-					return len;
-				}
+							int read = Math.min(len, oldState.writtenLen());
+							System.arraycopy(oldState.writtenBuf(), oldState.writtenOff(), b, off, read);
+							state.getAndUpdate(state -> switch(state.kind())
+							{
+								case IDLE, READ_WAITING_FOR_WRITE, WRITE_WAITING_FOR_READ, BYTES_READY, TRANSFER_COMPLETE -> throw new IllegalStateException(state.kind().toString());
+								case TRANSFERRING -> oldState.writtenLen() != read ? new State(Kind.WRITE_WAITING_FOR_READ,
+										oldState.writtenBuf(), oldState.writtenOff() + read, oldState.writtenLen() - read,
+										oldState.kindAfterDone())
+										: new State(oldState.kindAfterDone(), null, -1, -1, Kind.IDLE);
+								case IN_CLOSED, OUT_CLOSED, CLOSED -> state;
+							});
+							if(oldState.writtenLen() == read)
+								readDoneSemaphore.release();
+							// ignore if we got closed in the meantime; the read was successful.
+							yield read;
+						}
+						case IN_CLOSED, CLOSED -> throw new ClosedException();
+						case OUT_CLOSED -> -1;
+					};
+					if(readOr0 != 0)
+						return readOr0;
 
-				System.arraycopy(writtenBuf, writtenOff, b, off, oldWrittenLen);
-				writtenBuf = null;
-				readingFinishedSemaphore.release();
-				return oldWrittenLen;
+					initial = false;
+					try
+					{
+						readReadySemaphore.acquire();
+					} catch(InterruptedException e)
+					{
+						Thread.currentThread().interrupt();
+						throw new InterruptedIOException();
+					}
+				}
 			}
 
 			@Override
 			public void close()
 			{
-				Pipe.this.close();
+				State oldState = state.getAndUpdate(state -> switch(state.kind())
+				{
+					case IDLE, READ_WAITING_FOR_WRITE, WRITE_WAITING_FOR_READ, BYTES_READY, TRANSFERRING -> new State(Kind.IN_CLOSED);
+					case TRANSFER_COMPLETE -> new State(Kind.TRANSFER_COMPLETE, null, -1, -1, Kind.IN_CLOSED);
+					case IN_CLOSED, CLOSED -> state;
+					case OUT_CLOSED -> new State(Kind.CLOSED);
+				});
+				if(oldState.kind() != Kind.IN_CLOSED && oldState.kind() != Kind.CLOSED)
+				{
+					readReadySemaphore.release();
+					readDoneSemaphore.release();
+				}
 			}
 		};
 	}
@@ -111,72 +135,81 @@ public class Pipe implements AutoCloseable
 			@Override
 			public void write(int b) throws IOException
 			{
-				if(acquireIOAndCheckClosed(writingReadySemaphore))
-					throw new EOFException();
-				writtenSingleValue = true;
-				writtenValue = (byte) b;
-				readingReadySemaphore.release();
-
-				// no need to wait for readingFinished
+				write(new byte[] {(byte) b});
 			}
 
 			@Override
 			public void write(byte[] b, int off, int len) throws IOException
 			{
 				Objects.checkFromIndexSize(off, len, b.length);
-				if(acquireIOAndCheckClosed(writingReadySemaphore))
-					throw new EOFException();
-
 				if(len == 0)
-				{
-					writingReadySemaphore.release();
 					return;
-				}
 				// from here: len > 0
 
-				writtenSingleValue = false;
-				writtenBuf = b;
-				writtenOff = off;
-				writtenLen = len;
-				readingReadySemaphore.release();
-
-				// Make sure we're only returning when all bytes have been read.
-				// This is neccessary because otherwise the caller could modify the buffer.
-				if(acquireIOAndCheckClosed(readingFinishedSemaphore))
+				boolean initial = true;
+				for(;;)
 				{
-					writtenBuf = null;
-					throw new EOFException();
+					State oldState = state.getAndUpdate(initial
+							? state -> switch(state.kind())
+							{
+								case IDLE -> new State(Kind.WRITE_WAITING_FOR_READ, b, off, len, Kind.TRANSFER_COMPLETE);
+								case READ_WAITING_FOR_WRITE -> new State(Kind.BYTES_READY, b, off, len, Kind.TRANSFER_COMPLETE);
+								case WRITE_WAITING_FOR_READ, BYTES_READY, TRANSFERRING, TRANSFER_COMPLETE, IN_CLOSED, OUT_CLOSED, CLOSED -> state;
+							}
+							: state -> switch(state.kind())
+							{
+								case IDLE, READ_WAITING_FOR_WRITE, WRITE_WAITING_FOR_READ, BYTES_READY, TRANSFERRING -> throw new IllegalStateException(state.kind().toString());
+								case TRANSFER_COMPLETE -> new State(state.kindAfterDone());
+								case IN_CLOSED, OUT_CLOSED, CLOSED -> state;
+							});
+					boolean done = switch(oldState.kind())
+					{
+						case IDLE -> false;
+						case READ_WAITING_FOR_WRITE ->
+						{
+							readReadySemaphore.release();
+							yield false;
+						}
+						case TRANSFER_COMPLETE ->
+						{
+							if(initial)
+								throw new IOException("Concurrent writes");
+							yield true;
+						}
+						case WRITE_WAITING_FOR_READ, BYTES_READY, TRANSFERRING -> throw new IOException("Concurrent writes");
+						case IN_CLOSED -> throw new EOFException();
+						case OUT_CLOSED, CLOSED -> throw new ClosedException();
+					};
+					if(done)
+						return;
+
+					initial = false;
+					try
+					{
+						readDoneSemaphore.acquire();
+					} catch(InterruptedException e)
+					{
+						Thread.currentThread().interrupt();
+						throw new InterruptedIOException();
+					}
 				}
-				writingReadySemaphore.release();
 			}
 
 			@Override
 			public void close()
 			{
-				Pipe.this.close();
+				State oldState = state.getAndUpdate(state -> switch(state.kind())
+				{
+					case IDLE, READ_WAITING_FOR_WRITE -> new State(Kind.OUT_CLOSED);
+					case WRITE_WAITING_FOR_READ, BYTES_READY, TRANSFERRING, TRANSFER_COMPLETE ->
+							new State(state.kind(), state.writtenBuf(), state.writtenOff(), state.writtenLen(), Kind.OUT_CLOSED);
+					case IN_CLOSED -> new State(Kind.CLOSED);
+					case OUT_CLOSED, CLOSED -> state;
+				});
+				if(oldState.kind() == Kind.READ_WAITING_FOR_WRITE)
+					readReadySemaphore.release();
 			}
 		};
-	}
-
-	private boolean acquireIOAndCheckClosed(Semaphore semaphore) throws InterruptedIOException
-	{
-		if(closed)
-			return true;
-
-		try
-		{
-			semaphore.acquire();
-		} catch(InterruptedException e)
-		{
-			throw new InterruptedIOException();
-		}
-		if(closed)
-		{
-			semaphore.release();
-			return true;
-		}
-
-		return false;
 	}
 
 	public Exchange asExchange()
@@ -187,10 +220,30 @@ public class Pipe implements AutoCloseable
 	@Override
 	public void close()
 	{
-		closed = true;
-		writtenBuf = null;
-		writingReadySemaphore.release();
-		readingReadySemaphore.release();
-		readingFinishedSemaphore.release();
+		if(state.getAndSet(new State(Kind.CLOSED)).kind() != Kind.CLOSED)
+		{
+			readReadySemaphore.release();
+			readDoneSemaphore.release();
+		}
+	}
+
+	private static record State(Kind kind, byte[] writtenBuf, int writtenOff, int writtenLen, Kind kindAfterDone)
+	{
+		public State(Kind kind)
+		{
+			this(kind, null, -1, -1, null);
+		}
+	}
+	private static enum Kind
+	{
+		IDLE,
+		READ_WAITING_FOR_WRITE,
+		WRITE_WAITING_FOR_READ,
+		BYTES_READY,
+		TRANSFERRING,
+		TRANSFER_COMPLETE,
+		IN_CLOSED,
+		OUT_CLOSED,
+		CLOSED;
 	}
 }
