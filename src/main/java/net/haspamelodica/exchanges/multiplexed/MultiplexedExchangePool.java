@@ -136,8 +136,7 @@ public class MultiplexedExchangePool implements ExchangePool
 
 	private void recordReadyForReceiving(MultiplexedExchange exchange, int len) throws UnexpectedResponseException, IOException
 	{
-		if(DEBUG)
-			debugOut(exchange.id(), "Receiving " + (len != 0 ? len + " bytes ready" : "EOF"));
+		debugOut(exchange.id(), "Receiving " + (len != 0 ? len + " bytes ready" : "EOF"));
 		if(len == 0)
 			exchange.outEofReached();
 		else
@@ -145,8 +144,7 @@ public class MultiplexedExchangePool implements ExchangePool
 	}
 	private void recordReceivedData(MultiplexedExchange exchange, int len) throws UnexpectedResponseException, IOException
 	{
-		if(DEBUG)
-			debugIn(exchange.id(), "Receiving " + (len != 0 ? len + " bytes" : "EOF"));
+		debugIn(exchange.id(), "Receiving " + (len != 0 ? len + " bytes" : "EOF"));
 		if(len == 0)
 			exchange.inEofReached();
 		else
@@ -204,8 +202,7 @@ public class MultiplexedExchangePool implements ExchangePool
 	{
 		synchronized(rawOutLock)
 		{
-			if(DEBUG)
-				debug(-1, null, "Sending new stream ready");
+			debug(-1, null, "Sending new stream ready");
 			rawOut.writeInt(0);
 			rawOut.flush();
 		}
@@ -217,8 +214,7 @@ public class MultiplexedExchangePool implements ExchangePool
 	{
 		synchronized(rawOutLock)
 		{
-			if(DEBUG)
-				debugIn(exchangeId, "Sending " + len + " bytes ready");
+			debugIn(exchangeId, "Sending " + len + " bytes ready");
 			rawOut.writeInt(exchangeId | SIGN_BIT);
 			rawOut.writeInt(len);
 			rawOut.flush();
@@ -231,8 +227,7 @@ public class MultiplexedExchangePool implements ExchangePool
 	{
 		synchronized(rawOutLock)
 		{
-			if(DEBUG)
-				debugOut(exchangeId, "Sending " + len + " bytes: " + Arrays.toString(Arrays.copyOfRange(buf, off, off + len)));
+			debugOut(exchangeId, "Sending " + len + " bytes: " + Arrays.toString(Arrays.copyOfRange(buf, off, off + len)));
 			rawOut.writeInt(exchangeId);
 			rawOut.writeInt(len);
 			rawOut.write(buf, off, len);
@@ -246,8 +241,7 @@ public class MultiplexedExchangePool implements ExchangePool
 	{
 		synchronized(rawOutLock)
 		{
-			if(DEBUG)
-				debugOut(exchangeId, "Sending EOF");
+			debugOut(exchangeId, "Sending EOF");
 			rawOut.writeInt(exchangeId);
 			rawOut.writeInt(0);
 			rawOut.flush();
@@ -260,8 +254,7 @@ public class MultiplexedExchangePool implements ExchangePool
 	{
 		synchronized(rawOutLock)
 		{
-			if(DEBUG)
-				debugIn(exchangeId, "Sending EOF");
+			debugIn(exchangeId, "Sending EOF");
 			rawOut.writeInt(exchangeId | SIGN_BIT);
 			rawOut.writeInt(0);
 			rawOut.flush();
@@ -318,6 +311,9 @@ public class MultiplexedExchangePool implements ExchangePool
 			// Then, close rawExchange.
 			// Note that at this point it's still possible some thread reads from rawIn or writes to rawOut.
 			rawExchange.close();
+			
+			// At this point, we could join the readerThread; it's bound to exit in the near future for correct close behaviour
+			// of the underlying exchange.
 		}
 	}
 
@@ -331,7 +327,8 @@ public class MultiplexedExchangePool implements ExchangePool
 	}
 	private void debug(int exchangeId, String inOrOut, String message)
 	{
-		System.err.println((exchangeId >= 0 ? "Stream#" + exchangeId + " " : "") + (inOrOut != null ? inOrOut + ": " : "") + message);
+		if(DEBUG)
+			System.err.println((exchangeId >= 0 ? "Stream#" + exchangeId + " " : "") + (inOrOut != null ? inOrOut + ": " : "") + message);
 	}
 
 	static enum State
