@@ -9,16 +9,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
 import java.util.Random;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.api.Test;
 
 import net.haspamelodica.exchanges.multiplexed.MultiplexedExchangePool;
 import net.haspamelodica.exchanges.pipes.PipesExchangePool;
@@ -26,13 +26,18 @@ import net.haspamelodica.exchanges.util.AutoCloseablePair;
 
 public class TestExchanges
 {
+	private static final int	REGULAR_TEST_REPETITIONS		= 300;
+	private static final int	MANY_BYTES_TEST_REPETITIONS		= 30;
+	private static final int	STRESS_TEST_REPETITIONS			= 3;
 	private static final int	STRESS_TEST_LENGTH_MULTIPLIER	= 400;
 	private static final int	STRESS_TEST_PARALLEL_EXCHANGES	= 400;
+	private static final int	MAX_ASSUMED_BUFFER_SIZE			= 40000;
 
-	private static final boolean	TEST_MULTIPLEXED	= true;
-	private static final boolean	TEST_PIPED			= true;
+	private static final boolean	TEST_MULTIPLEXED		= true;
+	private static final boolean	TEST_PIPED				= true;
+	private static final boolean	TEST_PIPED_NOSHAREDMEM	= true;
 
-	@RepeatedTest(300)
+	@RepeatedTest(REGULAR_TEST_REPETITIONS)
 	public void testCreateAndTeardown() throws Exception
 	{
 		runTest(pool ->
@@ -40,7 +45,7 @@ public class TestExchanges
 		{});
 	}
 
-	@RepeatedTest(300)
+	@RepeatedTest(REGULAR_TEST_REPETITIONS)
 	public void testBasicSingleStream() throws Exception
 	{
 		byte[] msg = b("test");
@@ -49,7 +54,7 @@ public class TestExchanges
 				pool -> assertArrayEquals(msg, pool.createNewExchange().in().readNBytes(msg.length)));
 	}
 
-	@RepeatedTest(300)
+	@RepeatedTest(REGULAR_TEST_REPETITIONS)
 	public void testSingleStreamOutEofNoBytes() throws Exception
 	{
 		runTest(
@@ -57,7 +62,7 @@ public class TestExchanges
 				pool -> assertEquals(-1, pool.createNewExchange().in().read()));
 	}
 
-	@RepeatedTest(300)
+	@RepeatedTest(REGULAR_TEST_REPETITIONS)
 	public void testSingleStreamOutEofWithBytes() throws Exception
 	{
 		byte[] msg = b("test");
@@ -71,16 +76,38 @@ public class TestExchanges
 				pool -> assertArrayEquals(msg, pool.createNewExchange().in().readAllBytes()));
 	}
 
-	@RepeatedTest(300)
+	@RepeatedTest(MANY_BYTES_TEST_REPETITIONS)
+	public void testSingleStreamOutEofWithManyBytes() throws Exception
+	{
+		byte[] msg = b("test".repeat(10000));
+		runTest(
+				pool ->
+				{
+					OutputStream out = pool.createNewExchange().out();
+					out.write(msg);
+					out.close();
+				},
+				pool ->
+				{
+					InputStream in = pool.createNewExchange().in();
+					assertArrayEquals(msg, in.readAllBytes());
+				});
+	}
+
+	@RepeatedTest(REGULAR_TEST_REPETITIONS)
 	public void testSingleStreamInEof() throws Exception
 	{
-		byte[] msg = b("test");
+		byte[] msg = b("test".repeat(MAX_ASSUMED_BUFFER_SIZE / 4));
 		runTest(
-				pool -> assertThrows(EOFException.class, () -> pool.createNewExchange().out().write(msg)),
+				pool -> assertThrows(EOFException.class, () ->
+				{
+					Exchange createNewExchange = pool.createNewExchange();
+					createNewExchange.out().write(msg);
+				}),
 				pool -> pool.createNewExchange().in().close());
 	}
 
-	@Test
+	@RepeatedTest(STRESS_TEST_REPETITIONS)
 	public void testMultipleStreamsStress() throws Exception
 	{
 		long seed = ThreadLocalRandom.current().nextLong();
@@ -95,54 +122,38 @@ public class TestExchanges
 		runTest((pool1, pool2) ->
 		{
 			Random seedRnd = new Random(seed);
-			List<AtomicReference<Exception>> exceptionRefs = new ArrayList<>();
-			List<AtomicReference<Error>> errorRefs = new ArrayList<>();
-			List<Thread> threads = new ArrayList<>();
-			startStressTestsThreads(pool1, true, seedRnd, msg, parallelExchanges, exceptionRefs, errorRefs, threads);
-			startStressTestsThreads(pool2, false, seedRnd, msg, parallelExchanges, exceptionRefs, errorRefs, threads);
-			for(Thread thread : threads)
-				thread.join();
-			List<Exception> nonNullExceptions = exceptionRefs.stream().map(AtomicReference::get).filter(Objects::nonNull).toList();
-			List<Error> nonNullErrors = errorRefs.stream().map(AtomicReference::get).filter(Objects::nonNull).toList();
-			if(nonNullExceptions.size() != 0)
-			{
-				Exception e = nonNullExceptions.get(0);
-				for(int i = 1; i < nonNullExceptions.size(); i ++)
-					e.addSuppressed(nonNullExceptions.get(i));
-				nonNullErrors.forEach(e::addSuppressed);
-				throw e;
-			}
-			if(nonNullErrors.size() != 0)
-			{
-				Error e = nonNullErrors.get(0);
-				for(int i = 1; i < nonNullErrors.size(); i ++)
-					e.addSuppressed(nonNullErrors.get(i));
-				throw e;
-			}
+			DaemonThreadGroup group = new DaemonThreadGroup();
+			CyclicBarrier barrier = new CyclicBarrier(parallelExchanges * 2);
+			startStressTestsThreads(pool1, true, seedRnd, msg, parallelExchanges, group, barrier);
+			startStressTestsThreads(pool2, false, seedRnd, msg, parallelExchanges, group, barrier);
+			group.waitForCompletionOrError();
 		});
 	}
 
 	private void startStressTestsThreads(ExchangePool pool, boolean readFirst, Random seedRnd, byte[] msg, int parallelExchanges,
-			List<AtomicReference<Exception>> exceptionRefs, List<AtomicReference<Error>> errorRefs, List<Thread> threads)
+			DaemonThreadGroup group, CyclicBarrier barrier)
 	{
+		Semaphore threadSem = new Semaphore(1);
 		for(int i = 0; i < parallelExchanges; i ++)
 		{
-			AtomicReference<Exception> exceptionRef = new AtomicReference<>();
-			AtomicReference<Error> errorRef = new AtomicReference<>();
 			long seed = seedRnd.nextLong();
-			threads.add(startDaemon(() ->
+			Semaphore prevThreadSem = threadSem;
+			Semaphore nextThreadSem = new Semaphore(0);
+			threadSem = nextThreadSem;
+			group.startThread("#" + i + (readFirst ? "a" : "b"), () ->
 			{
 				Random random = new Random(seed);
+				prevThreadSem.acquire();
 				Exchange exchange = pool.createNewExchange();
+				nextThreadSem.release();
+				barrier.await();
 				if(readFirst)
 					assertArrayEquals(msg, readRandomly(exchange.in(), random));
 				writeRandomly(exchange.out(), msg, random);
 				exchange.out().close();
 				if(!readFirst)
 					assertArrayEquals(msg, readRandomly(exchange.in(), random));
-			}, exceptionRef, errorRef));
-			exceptionRefs.add(exceptionRef);
-			errorRefs.add(errorRef);
+			});
 		}
 	}
 
@@ -164,11 +175,20 @@ public class TestExchanges
 		{
 			int len = random.nextInt(200);
 			buf = Arrays.copyOf(buf, readSoFar + len);
-			int read = in.read(buf, readSoFar, len);
-			assertEquals(len == 0, read == 0);
-			if(read < 0)
-				break;
-			readSoFar += read;
+			if(len == 1 && random.nextBoolean())
+			{
+				int read = in.read();
+				if(read < 0)
+					break;
+				buf[readSoFar ++] = (byte) read;
+			} else
+			{
+				int read = in.read(buf, readSoFar, len);
+				assertEquals(len == 0, read == 0);
+				if(read < 0)
+					break;
+				readSoFar += read;
+			}
 		}
 		return Arrays.copyOf(buf, readSoFar);
 	}
@@ -182,51 +202,11 @@ public class TestExchanges
 	{
 		runTest((pool1, pool2) ->
 		{
-			AtomicReference<Exception> exceptionInAction2Ref = new AtomicReference<>();
-			AtomicReference<Error> errorInAction2Ref = new AtomicReference<>();
-			Thread threadForAction2 = startDaemon(() -> action2.accept(pool2), exceptionInAction2Ref, errorInAction2Ref);
-			try
-			{
-				action1.accept(pool1);
-				threadForAction2.join();
-			} catch(Exception e)
-			{
-				Exception exceptionInAction2 = exceptionInAction2Ref.get();
-				if(exceptionInAction2 != null)
-					e.addSuppressed(exceptionInAction2);
-				Error errorInAction2 = errorInAction2Ref.get();
-				if(errorInAction2 != null)
-					e.addSuppressed(errorInAction2);
-				throw e;
-			}
-			Exception exceptionInAction2 = exceptionInAction2Ref.get();
-			if(exceptionInAction2 != null)
-				throw exceptionInAction2;
-			Error errorInAction2 = errorInAction2Ref.get();
-			if(errorInAction2 != null)
-				throw errorInAction2;
+			DaemonThreadGroup group = new DaemonThreadGroup();
+			group.startThread("a1", () -> action1.accept(pool1));
+			group.startThread("a2", () -> action2.accept(pool2));
+			group.waitForCompletionOrError();
 		});
-	}
-
-	private static Thread startDaemon(ThrowingRunnable action, AtomicReference<Exception> exceptionInAction2Ref, AtomicReference<Error> errorInAction2Ref)
-	{
-		Thread thread = new Thread(() ->
-		{
-			try
-			{
-				action.run();
-			} catch(Exception e)
-			{
-				exceptionInAction2Ref.set(e);
-			} catch(Error e)
-			{
-				// JUnit's AssertionFailedError is an error, not an exception
-				errorInAction2Ref.set(e);
-			}
-		});
-		thread.setDaemon(true);
-		thread.start();
-		return thread;
 	}
 
 	private static void runTest(ThrowingBiConsumer<ExchangePool, ExchangePool> action) throws Exception
@@ -244,8 +224,74 @@ public class TestExchanges
 			{
 				action.accept(pool, pool.getClient());
 			}
+
+		if(TEST_PIPED_NOSHAREDMEM)
+			try(PipesExchangePool pool = new PipesExchangePool(Exchange::openPipedNoSharedMemory))
+			{
+				action.accept(pool, pool.getClient());
+			}
 	}
 
+	private static class DaemonThreadGroup
+	{
+		private final BlockingQueue<ThreadResult>	threadResults;
+		private final AtomicInteger					threadCount;
+
+		public DaemonThreadGroup()
+		{
+			threadResults = new ArrayBlockingQueue<>(10);
+			threadCount = new AtomicInteger();
+		}
+
+		public void startThread(String name, ThrowingRunnable action)
+		{
+			threadCount.incrementAndGet();
+			Thread thread = new Thread(() ->
+			{
+				try
+				{
+					action.run();
+					threadResults.put(new ThreadResult(null, null));
+				} catch(Exception e)
+				{
+					try
+					{
+						threadResults.put(new ThreadResult(e, null));
+					} catch(InterruptedException e1)
+					{
+						e1.printStackTrace();
+					}
+				} catch(Error e)
+				{
+					// JUnit's AssertionFailedError is an error, not an exception
+					try
+					{
+						threadResults.put(new ThreadResult(null, e));
+					} catch(InterruptedException e1)
+					{
+						e1.printStackTrace();
+					}
+				}
+			}, name);
+			thread.setDaemon(true);
+			thread.start();
+		}
+
+		public void waitForCompletionOrError() throws Exception
+		{
+			for(int i = 0; i < threadCount.get(); i ++)
+			{
+				ThreadResult result = threadResults.take();
+				if(result.exceptionIfAny() != null)
+					throw result.exceptionIfAny();
+				if(result.errorIfAny() != null)
+					throw result.errorIfAny();
+			}
+		}
+
+		private static record ThreadResult(Exception exceptionIfAny, Error errorIfAny)
+		{}
+	}
 	private static interface ThrowingRunnable
 	{
 		public void run() throws Exception;
