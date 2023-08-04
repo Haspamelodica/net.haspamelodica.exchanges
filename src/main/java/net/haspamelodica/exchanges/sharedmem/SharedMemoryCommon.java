@@ -39,12 +39,11 @@ public class SharedMemoryCommon
 
 	public static final boolean	DEBUG_SLOW_EXCHANGE_FOR_SHAREDMEM	= false;
 	public static final int		BUFSIZE_OVERHEAD					= OFFSET_DATA_START;
+	public static final long	DEFAULT_BUSY_WAIT_TIMEOUT_NANOS		= 1_000_000;		// 1ms
 
 	// MIN_VALUE is 0x8000_0000, but 0x8000_0000 feels more hardcoded and arbitrary
 	static final int	REQ_NOTIF_BIT	= Integer.MIN_VALUE;
 	static final int	POS_MASK		= ~REQ_NOTIF_BIT;
-
-	private static final long DEFAULT_BUSY_WAIT_TIMEOUT_NANOS = 1_000_000; // 1ms
 
 	private static final VarHandle INT_HANDLE = MethodHandles.byteBufferViewVarHandle(int[].class, ByteOrder.nativeOrder());
 
