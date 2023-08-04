@@ -1,6 +1,5 @@
 package net.haspamelodica.exchanges.sharedmem;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -58,11 +57,11 @@ public class SharedMemoryCommon
 	private final AtomicBoolean				closed;
 	private boolean							eof;
 
-	SharedMemoryCommon(Exchange slowExchange, AutoCloseableByteBuffer autoCloseableSharedmem) throws IOException
+	SharedMemoryCommon(Exchange slowExchange, AutoCloseableByteBuffer autoCloseableSharedmem, boolean isWriter) throws IOException
 	{
-		this(slowExchange, autoCloseableSharedmem, DEFAULT_BUSY_WAIT_TIMEOUT_NANOS);
+		this(slowExchange, autoCloseableSharedmem, isWriter, DEFAULT_BUSY_WAIT_TIMEOUT_NANOS);
 	}
-	SharedMemoryCommon(Exchange slowExchange, AutoCloseableByteBuffer autoCloseableSharedmem, long busyWaitTimeoutNanos) throws IOException
+	SharedMemoryCommon(Exchange slowExchange, AutoCloseableByteBuffer autoCloseableSharedmem, boolean isWriter, long busyWaitTimeoutNanos) throws IOException
 	{
 		this.sharedmem = autoCloseableSharedmem.byteBuffer();
 		this.bufsize = sharedmem.capacity() - OFFSET_DATA_START;
@@ -75,7 +74,7 @@ public class SharedMemoryCommon
 		this.autoCloseableSharedmem = autoCloseableSharedmem;
 		this.closed = new AtomicBoolean();
 
-		initAndSynchronize();
+		initAndSynchronize(isWriter);
 	}
 
 	int bufsize()
@@ -86,13 +85,15 @@ public class SharedMemoryCommon
 	/**
 	 * Initializes both positions and waits until the other side is ready too.
 	 */
-	private void initAndSynchronize() throws IOException
+	private void initAndSynchronize(boolean isWriter) throws IOException
 	{
-		//TODO Both sides set both values. That's slightly suboptimal (two stores too many).
-		getAndSetInt(OFFSET_READER_DATA, 0);
-		getAndSetInt(OFFSET_WRITER_DATA, 0);
-		sendNotification();
-		waitForNotificationOrEOF();
+		if(isWriter)
+		{
+			getAndSetInt(OFFSET_READER_DATA, 0);
+			getAndSetInt(OFFSET_WRITER_DATA, 0);
+			sendNotification();
+		} else
+			waitForNotificationOrEOF();
 	}
 
 	static record Positions(int ownPos, int otherPos)
@@ -201,6 +202,7 @@ public class SharedMemoryCommon
 		if((getAndSetInt(byteOffset, newPos % bufsize()) & REQ_NOTIF_BIT) != 0)
 			sendNotification();
 	}
+
 	byte getDataByte(int byteOffsetInData)
 	{
 		// It's not possible to create a VarHandle for byte.
@@ -211,6 +213,17 @@ public class SharedMemoryCommon
 		// It's not possible to create a VarHandle for byte.
 		sharedmem.put(byteOffsetInData + OFFSET_DATA_START, value);
 	}
+	void getDataBytes(int byteOffsetInData, byte[] buf, int off, int len)
+	{
+		// It's not possible to create a VarHandle for byte.
+		sharedmem.get(byteOffsetInData + OFFSET_DATA_START, buf, off, len);
+	}
+	void setDataBytes(int byteOffsetInData, byte[] buf, int off, int len)
+	{
+		// It's not possible to create a VarHandle for byte.
+		sharedmem.put(byteOffsetInData + OFFSET_DATA_START, buf, off, len);
+	}
+
 	private int getInt(int byteOffset)
 	{
 		return (int) INT_HANDLE.getVolatile(sharedmem, byteOffset);
@@ -235,7 +248,8 @@ public class SharedMemoryCommon
 		if(read == 0)
 			return false;
 
-		if(read > 0)
+		// EOF on slowExchange means EOF.
+		if(read >= 0)
 			throw new IOException("Illegal notification byte: " + read);
 
 		// Now, we know that read < 0 and thus EOF has been reached.
@@ -255,13 +269,6 @@ public class SharedMemoryCommon
 		if(closed.getAndSet(true))
 			return;
 
-		try
-		{
-			slowExchange.out().write(-1);
-		} catch(EOFException e)
-		{
-			// ignore; this happens for some slowExchange implementations when the other side has closed
-		}
 		autoCloseableSharedmem.close();
 		slowExchange.close();
 	}
