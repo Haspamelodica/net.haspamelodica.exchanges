@@ -18,22 +18,18 @@ import net.haspamelodica.exchanges.sharedmem.SharedMemoryInputStream;
 import net.haspamelodica.exchanges.sharedmem.SharedMemoryOutputStream;
 import net.haspamelodica.exchanges.stats.StatisticsExchange;
 import net.haspamelodica.exchanges.util.AutoCloseableByteBuffer;
+import net.haspamelodica.exchanges.util.IOAutoCloseable;
 import net.haspamelodica.exchanges.util.AutoCloseablePair;
 import net.haspamelodica.exchanges.util.IORunnable;
 
-public interface Exchange extends AutoCloseable
+public interface Exchange extends IOAutoCloseable
 {
-	public static final boolean DEBUG_SLOW_EXCHANGE_FOR_SHAREDMEM_PIPE = false;
-
 	public static final int DEFAULT_SHAREDMEM_BUFSIZE = 4096;
 
 	public InputStream in();
 	public OutputStream out();
 
-	@Override
-	public void close() throws IOException;
-
-	public static Exchange of(InputStream in, OutputStream out)
+	public static Exchange ofNoExtraCloseAction(InputStream in, OutputStream out)
 	{
 		return new ExchangeImpl(in, out, () ->
 		{
@@ -98,7 +94,7 @@ public interface Exchange extends AutoCloseable
 			}
 		}
 
-		return of(in, out);
+		return ofNoExtraCloseAction(in, out);
 	}
 
 	public static AutoCloseablePair<Exchange, Exchange> openPipedNoSharedMemory()
@@ -109,8 +105,8 @@ public interface Exchange extends AutoCloseable
 		@SuppressWarnings("resource")
 		Pipe pipe2 = new Pipe();
 		return new AutoCloseablePair<>(
-				of(pipe1.in(), pipe2.out()),
-				of(pipe2.in(), pipe1.out()));
+				ofNoExtraCloseAction(pipe1.in(), pipe2.out()),
+				ofNoExtraCloseAction(pipe2.in(), pipe1.out()));
 	}
 
 	public static AutoCloseablePair<Exchange, Exchange> openPiped()
@@ -122,8 +118,8 @@ public interface Exchange extends AutoCloseable
 		Exchange pipe1 = openSharedMemoryPipe(bufsize);
 		Exchange pipe2 = openSharedMemoryPipe(bufsize);
 		return new AutoCloseablePair<>(
-				of(pipe1.in(), pipe2.out()),
-				of(pipe2.in(), pipe1.out()));
+				ofNoExtraCloseAction(pipe1.in(), pipe2.out()),
+				ofNoExtraCloseAction(pipe2.in(), pipe1.out()));
 	}
 
 	private static Exchange openSharedMemoryPipe(int bufsize)
@@ -140,10 +136,7 @@ public interface Exchange extends AutoCloseable
 		{
 			try
 			{
-				Exchange slowExchange = slowPipe.a();
-				if(DEBUG_SLOW_EXCHANGE_FOR_SHAREDMEM_PIPE)
-					slowExchange = slowExchange.wrapStatistics(System.err, "slow a");
-				inRef.set(new SharedMemoryInputStream(slowExchange, buf));
+				inRef.set(new SharedMemoryInputStream(slowPipe.a(), buf));
 			} catch(IOException e)
 			{
 				inCreationIOExceptionRef.set(e);
@@ -158,10 +151,7 @@ public interface Exchange extends AutoCloseable
 		SharedMemoryOutputStream out;
 		try
 		{
-			Exchange slowExchange = slowPipe.b();
-			if(DEBUG_SLOW_EXCHANGE_FOR_SHAREDMEM_PIPE)
-				slowExchange = slowExchange.wrapStatistics(System.err, "slow b");
-			out = new SharedMemoryOutputStream(slowExchange, buf);
+			out = new SharedMemoryOutputStream(slowPipe.b(), buf);
 		} catch(IOException e)
 		{
 			// This means that the slowPipe failed, which should not be possible.
@@ -179,7 +169,7 @@ public interface Exchange extends AutoCloseable
 
 		SharedMemoryInputStream in = inRef.get();
 		if(in != null)
-			return Exchange.of(in, out);
+			return Exchange.ofNoExtraCloseAction(in, out);
 
 		IOException inCreationIOException = inCreationIOExceptionRef.get();
 		if(inCreationIOException != null)

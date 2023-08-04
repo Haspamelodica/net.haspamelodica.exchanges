@@ -4,7 +4,9 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public record DataExchange(DataInputStream in, DataOutputStream out) implements AutoCloseable
+import net.haspamelodica.exchanges.util.IOAutoCloseable;
+
+public record DataExchange(DataInputStream in, DataOutputStream out) implements IOAutoCloseable
 {
 	@Override
 	public void close() throws IOException

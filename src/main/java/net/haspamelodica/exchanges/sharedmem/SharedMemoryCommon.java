@@ -37,7 +37,8 @@ public class SharedMemoryCommon
 	static final int	OFFSET_WRITER_DATA	= 4;
 	static final int	OFFSET_DATA_START	= 8;
 
-	public static final int BUFSIZE_OVERHEAD = OFFSET_DATA_START;
+	public static final boolean	DEBUG_SLOW_EXCHANGE_FOR_SHAREDMEM	= false;
+	public static final int		BUFSIZE_OVERHEAD					= OFFSET_DATA_START;
 
 	// MIN_VALUE is 0x8000_0000, but 0x8000_0000 feels more hardcoded and arbitrary
 	static final int	REQ_NOTIF_BIT	= Integer.MIN_VALUE;
@@ -68,7 +69,7 @@ public class SharedMemoryCommon
 		if(bufsize <= 0)
 			throw new IllegalArgumentException("Buffer too small");
 
-		this.slowExchange = slowExchange;
+		this.slowExchange = DEBUG_SLOW_EXCHANGE_FOR_SHAREDMEM ? slowExchange.wrapStatistics(System.err, "slow") : slowExchange;
 		this.busyWaitTimeoutNanos = busyWaitTimeoutNanos;
 
 		this.autoCloseableSharedmem = autoCloseableSharedmem;

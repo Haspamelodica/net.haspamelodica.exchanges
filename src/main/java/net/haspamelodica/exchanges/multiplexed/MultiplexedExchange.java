@@ -43,7 +43,7 @@ public class MultiplexedExchange
 	Exchange asExchange()
 	{
 		// No need for extra close action: if we get closed, all we do is close in and out.
-		return Exchange.of(in, out);
+		return Exchange.ofNoExtraCloseAction(in, out);
 	}
 
 	void outEofReached()

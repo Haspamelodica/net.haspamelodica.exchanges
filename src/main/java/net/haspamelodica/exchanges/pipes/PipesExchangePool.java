@@ -28,6 +28,7 @@ public class PipesExchangePool extends SimpleExchangePool
 	protected Exchange createExchangeInterruptible() throws InterruptedException
 	{
 		AutoCloseablePair<Exchange, Exchange> pipe = openPiped.get();
+		addCloseAction(pipe::close);
 		client.put(pipe.a());
 		return pipe.b();
 	}

@@ -9,7 +9,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.stream.Stream;
 
-public interface AutoCloseableByteBuffer extends AutoCloseable
+public interface AutoCloseableByteBuffer extends IOAutoCloseable
 {
 	public ByteBuffer byteBuffer();
 

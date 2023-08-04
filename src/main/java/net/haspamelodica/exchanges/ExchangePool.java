@@ -4,12 +4,11 @@ import java.io.IOException;
 import java.io.PrintStream;
 
 import net.haspamelodica.exchanges.stats.StatisticsExchangePool;
+import net.haspamelodica.exchanges.util.IOAutoCloseable;
 
-public interface ExchangePool extends AutoCloseable
+public interface ExchangePool extends IOAutoCloseable
 {
 	public Exchange createNewExchange() throws IOException;
-	@Override
-	public void close() throws IOException;
 
 	public default StatisticsExchangePool wrapStatistics()
 	{

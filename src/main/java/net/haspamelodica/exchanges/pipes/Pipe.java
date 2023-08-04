@@ -11,8 +11,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import net.haspamelodica.exchanges.Exchange;
 import net.haspamelodica.exchanges.util.ClosedException;
+import net.haspamelodica.exchanges.util.IOAutoCloseable;
 
-public class Pipe implements AutoCloseable
+public class Pipe implements IOAutoCloseable
 {
 	private final AtomicReference<State>	state;
 	private final Semaphore					readReadySemaphore;

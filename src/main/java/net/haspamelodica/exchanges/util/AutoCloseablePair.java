@@ -1,9 +1,11 @@
 package net.haspamelodica.exchanges.util;
 
-public record AutoCloseablePair<A extends AutoCloseable, B extends AutoCloseable>(A a, B b) implements AutoCloseable
+import java.io.IOException;
+
+public record AutoCloseablePair<A extends IOAutoCloseable, B extends IOAutoCloseable>(A a, B b) implements IOAutoCloseable
 {
 	@Override
-	public void close() throws Exception
+	public void close() throws IOException
 	{
 		try
 		{
