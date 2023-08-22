@@ -19,7 +19,7 @@ import net.haspamelodica.exchanges.util.ClosedException;
  * The LSBits (mask 0x7FFF_FFFF) of the reader / writer data are the reader / writer position in the ringbuffer;
  * the MSBit (mask 0x8000_0000) of the data is set if the OTHER side requests a notification over the {@link #slowExchange}.
  * So, the MSBit of the reader data is set if the writer requests a notification, and the other way around.
- * The reasoning behind this is that after the busy wait fails for one side, it can do one last CAX on the other side's length,
+ * The reasoning behind this is that after the busy wait fails for one side, it can do one last CAX on the other side's position,
  * and this way atomically check if there's data now as well as request a notification if there's not.
  * <p>
  * Assumption: There's at most one thread reading and one thread writing at any given time.
