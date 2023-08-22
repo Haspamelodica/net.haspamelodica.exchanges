@@ -153,7 +153,7 @@ public class SharedMemoryCommon
 
 		// Busy wait timed out. Atomically do the following:
 		// - Check one last time if the pos changed.
-		// - If there's not, the fast path failed, so request a notification.
+		// - If it hasn't, the fast path failed, so request a notification.
 		// This can be done by a single CAX, with the expected value being the old pos without the REQ_NOTIF_BIT,
 		// and the new value being the old pos with the REQ_NOTIF_BIT.
 		pos = caxInt(byteOffset, pos & POS_MASK, pos);
