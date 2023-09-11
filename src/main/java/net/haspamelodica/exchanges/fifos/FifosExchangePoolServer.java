@@ -60,7 +60,7 @@ public class FifosExchangePoolServer extends SimpleExchangePool
 	//TODO this is EXTREMELY ugly! Is there really no way to create a fifo in Java?
 	public static void mkfifo(Path dir, String name) throws IOException, InterruptedException
 	{
-		Process mkfifo = new ProcessBuilder("mkfifo", name)
+		Process mkfifo = new ProcessBuilder("mkfifo", "-m=0666", name)
 				.directory(dir.toFile())
 				.redirectInput(Redirect.PIPE)
 				.redirectOutput(Redirect.DISCARD)
